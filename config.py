@@ -23,8 +23,12 @@ class LLMSettings(BaseModel):
     api_key: Optional[str] = Field(None, description="API Key（可为空，走本地/无鉴权方案）")
     max_tokens: int = Field(4096, description="最大输出tokens")
     temperature: float = Field(1.0, description="采样温度")
-    api_type: str = Field("openai", description="后端类型: openai/azure/ollama")
+    api_type: str = Field("openai", description="后端类型: openai/deepseek/ollama/moonshot")
     api_version: Optional[str] = Field(None, description="Azure OpenAI 版本（仅azure需要）")
+
+class ToolSettings(BaseModel):
+    """工具配置项。当前仅保留 api_key，统一从 toml 管理。"""
+    api_key: Optional[str] = Field(None, description="工具所需 API Key")
 
 class Config:
     # 基础配置
@@ -43,17 +47,6 @@ class Config:
     # 确保上传目录存在
     UPLOAD_FOLDER.mkdir(exist_ok=True)
 
-    # 配置 DeepSeek API 密钥
-    DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
-    DEEPSEEK_MODEL = os.environ.get('DEEPSEEK_MODEL', 'deepseek-chat')
-    MAX_TEXT_LENGTH = int(os.environ.get('MAX_TEXT_LENGTH', 4000))
-    DEEPSEEK_URL = os.environ.get('DEEPSEEK_URL', 'https://api.deepseek.com')
-    
-    # 配置豆包视觉模型
-    ARK_API_KEY = os.environ.get('ARK_API_KEY')
-    DOUBAO_MODEL = os.environ.get('DOUBAO_MODEL', '')
-    DOUBAO_URL = os.environ.get('DOUBAO_URL', '')
-    
     # RAG系统配置
     # Ollama服务配置
     EMBEDDING_URL = os.environ.get('EMBEDDING_URL', 'http://localhost:11434')
@@ -67,17 +60,14 @@ class Config:
     # 检索配置
     RAG_TOP_K = int(os.environ.get('RAG_TOP_K', 5))  # 默认检索数量
     RAG_SCORE_THRESHOLD = float(os.environ.get('RAG_SCORE_THRESHOLD', 0.1))  # 相似度阈值
-    
-    
-    TAVILY_API_KEY = os.environ.get('TAVILY_API_KEY')
-    BAIDU_API_KEY = os.environ.get('BAIDU_API_KEY')
-    
+    # 说明：工具类 API Key 统一从 config.toml 的 [tools] 读取
     
     # -------------------- LLM 配置（新增） --------------------
     _instance = None
     _lock = threading.Lock()
     _initialized = False
     _llm: Optional[Dict[str, LLMSettings]] = None
+    _tools: Optional[Dict[str, ToolSettings]] = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -90,11 +80,15 @@ class Config:
         if not self._initialized:
             with self._lock:
                 if not self._initialized:
-                    # 延迟加载 LLM 配置
+                    # 延迟加载 LLM/工具 配置
                     try:
                         self._llm = self._load_llm_config()
                     except Exception:
                         self._llm = {}
+                    try:
+                        self._tools = self._load_tool_config()
+                    except Exception:
+                        self._tools = {}
                     self._initialized = True
 
     @staticmethod
@@ -145,7 +139,44 @@ class Config:
 
         return result
 
+    def _load_tool_config(self) -> Dict[str, ToolSettings]:
+        """读取 [tools] 配置，统一管理工具 API Key。
+
+        期望的 toml 结构：
+        [tools.tavily]
+        api_key = "..."
+
+        [tools.baidu]
+        api_key = "..."
+        """
+        path = self._get_config_path()
+        if not path.exists():
+            return {}
+        with path.open("rb") as f:
+            raw = tomllib.load(f)
+
+        tools_root = raw.get("tools", {})
+        result: Dict[str, ToolSettings] = {}
+        for name, conf in tools_root.items():
+            if isinstance(conf, dict):
+                api_key = conf.get("api_key")
+                result[name] = ToolSettings(api_key=api_key)
+        return result
+
     @property
     def llm(self) -> Dict[str, LLMSettings]:
         """返回所有可用的 LLM 配置（按名称索引）。"""
         return self._llm or {}
+
+    @property
+    def tools(self) -> Dict[str, ToolSettings]:
+        """返回所有工具配置（按名称索引）。"""
+        return self._tools or {}
+
+    def tool(self, name: str) -> ToolSettings:
+        """获取指定工具的配置；若不存在返回空配置。"""
+        return (self._tools or {}).get(name, ToolSettings())
+
+    def get_tool_api_key(self, name: str) -> Optional[str]:
+        """便捷方法：获取指定工具的 api_key。"""
+        return self.tool(name).api_key

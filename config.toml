@@ -78,6 +78,13 @@ temperature = 0.0
 # username = "proxy-username"
 # password = "proxy-password"
 
+
+[tools.tavily]
+api_key = "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"
+
+[tools.baidu]
+api_key = "bce-v3/ALTAK-OITIT5uFE6mmaal5SfofD/2053f128c99cea9e0d4ed2cf10ee19f1bf4e7412"
+
 # Optional configuration, Search settings.
 # [search]
 # Search engine for agent to use. Default is "Google", can be set to "Baidu" or "DuckDuckGo" or "Bing".
