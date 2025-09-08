@@ -3,7 +3,7 @@
 
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
-from my_agent.state import AgentState
+from stockai.state import AgentState
 
 
 def hello_node(state: AgentState) -> Dict[str, Any]:

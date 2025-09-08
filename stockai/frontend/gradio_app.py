@@ -8,8 +8,8 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import List, Tuple, Dict, Any
-from my_agent.agent import graph
-from my_agent.state import AgentState
+from stockai.agent import graph
+from stockai.state import AgentState
 
 def get_stock_info(stock_code):
     """获取股票基本信息"""

@@ -1,7 +1,7 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "my_agent": "./my_agent/agent.py:graph"
+    "my_agent": "./stockai/agent.py:graph"
   },
   "env": ".env"
 }

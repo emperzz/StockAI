@@ -11,13 +11,13 @@ class AgentState(TypedDict):
     user_input: str
     
     # 处理结果
-    response: str
+    response: Optional[str]
     
     # 错误信息
     error: Optional[str]
     
     # 处理状态
-    status: str  # "processing", "completed", "error"
+    status: Optional[str]  # "processing", "completed", "error"
     
     # 历史对话
-    conversation_history: List[dict]
+    conversation_history: Optional[List[dict]]
