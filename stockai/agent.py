@@ -3,41 +3,42 @@
 
 from typing import Dict, Any
 from langgraph.graph import StateGraph, END
+from langchain_core.messages import HumanMessage, SystemMessage
 from stockai.state import AgentState
+from stockai.llm import LLM
 
 
 def hello_node(state: AgentState) -> Dict[str, Any]:
     """
-    基础回答节点 - 默认回复hello
-    不需要调用大语言模型，直接返回固定回复
+    使用已配置的 LLM 模型对用户输入进行一次简单回复。
     """
-    print(f"收到用户输入: {state['user_input']}")
-    
-    # 更新状态
+    user_input = state.get("user_input")
+    text = getattr(user_input, "content", str(user_input))
+
+    model = LLM().get_model()
+    messages = [
+        SystemMessage(content="你是StockAI智能助手，请用简洁中文回答。"),
+        HumanMessage(content=text or "你好")
+    ]
+    ai_msg = model.invoke(messages)
+
     return {
-        "response": "Hello! 我是StockAI助手，很高兴为您服务！",
-        "status": "completed",
-        "error": None
+        "messages": [ai_msg]
     }
 
 
 def should_continue(state: AgentState) -> str:
     """
-    决定是否继续处理的条件函数
+    简化后的流转：hello 节点后直接结束。
     """
-    if state.get("status") == "error":
-        return "error"
     return "end"
 
 
 def error_node(state: AgentState) -> Dict[str, Any]:
     """
-    错误处理节点
+    兼容保留（不再使用）。
     """
-    return {
-        "response": f"抱歉，处理过程中出现错误: {state.get('error', '未知错误')}",
-        "status": "error"
-    }
+    return {"response": ""}
 
 
 # 构建LangGraph工作流
@@ -50,23 +51,16 @@ def create_graph() -> StateGraph:
     
     # 添加节点
     workflow.add_node("hello", hello_node)
-    workflow.add_node("error_handler", error_node)
     
     # 设置入口点
     workflow.set_entry_point("hello")
     
-    # 添加条件边
+    # 添加条件边：hello -> END
     workflow.add_conditional_edges(
         "hello",
         should_continue,
-        {
-            "end": END,
-            "error": "error_handler"
-        }
+        {"end": END}
     )
-    
-    # 错误节点直接结束
-    workflow.add_edge("error_handler", END)
     
     return workflow
 

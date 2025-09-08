@@ -13,7 +13,7 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 # 导入并启动前端应用
-from my_agent.frontend.gradio_app import main
+from stockai.frontend.gradio_app import main
 
 if __name__ == "__main__":
     print("🚀 正在启动StockAI前端界面...")

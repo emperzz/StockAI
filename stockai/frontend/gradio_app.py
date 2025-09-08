@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import List, Tuple, Dict, Any
+from langchain_core.messages import HumanMessage, AIMessage
 from stockai.agent import graph
 from stockai.state import AgentState
 
@@ -112,31 +113,53 @@ def analyze_stock(stock_code):
 def chat_with_agent(user_message: str, chat_history: List[Tuple[str, str]]):
     """与LangGraph Agent对话，返回更新后的历史记录和清空后的输入。
 
-    - 不影响现有分析功能
-    - 使用后端graph，默认返回hello
+    适配最新的 AgentState（仅包含 user_input 与 messages），并基于 agent 返回的
+    messages 提取最新的助手回复。
     """
     try:
         if user_message is None:
             user_message = ""
 
-        # 将历史转换为简单的role/content结构，供后续扩展使用
-        converted_history: List[Dict[str, str]] = []
+        # 将历史记录转换为 LangChain 消息序列
+        history_messages: List[Any] = []
         for user, bot in chat_history or []:
             if user:
-                converted_history.append({"role": "user", "content": user})
+                history_messages.append(HumanMessage(content=user))
             if bot:
-                converted_history.append({"role": "assistant", "content": bot})
+                history_messages.append(AIMessage(content=bot))
+
+        current_user_msg = HumanMessage(content=user_message)
+        messages = history_messages + [current_user_msg]
 
         initial_state: AgentState = {
-            "user_input": user_message,
-            "response": "",
-            "error": None,
-            "status": "processing",
-            "conversation_history": converted_history,
+            "user_input": current_user_msg,
+            "messages": messages,
         }
 
         result: Dict[str, Any] = graph.invoke(initial_state)
-        bot_reply: str = result.get("response", "")
+        result_messages = result.get("messages", []) or []
+
+        # 从返回的消息中找到最后一条助手回复（放宽匹配：取最后一个非 HumanMessage 的消息）
+        bot_reply = ""
+        for m in reversed(result_messages):
+            try:
+                msg_content = getattr(m, "content", None)
+                if not msg_content:
+                    continue
+                # 优先匹配 AIMessage
+                if isinstance(m, AIMessage):
+                    bot_reply = msg_content
+                    break
+                # 兼容其他消息实现：跳过 HumanMessage，保留其它类型
+                if isinstance(m, HumanMessage):
+                    continue
+                msg_type = getattr(m, "type", None)
+                if msg_type and str(msg_type).lower() == "human":
+                    continue
+                bot_reply = msg_content
+                break
+            except Exception:
+                continue
 
         updated_history = (chat_history or []) + [(user_message, bot_reply)]
         return updated_history, ""
