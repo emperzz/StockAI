@@ -8,8 +8,8 @@ from langgraph.prebuilt import create_react_agent
 from langgraph.types import Command, Send
 from stockai.tools.akshare import (
     get_current_time, 
-    get_index_price_hist, get_concept_price_hist, get_stock_price_hist,
-    get_all_index_price_realtime,get_concept_list,get_all_stock_list
+    get_index_kline, get_concept_kline, get_stock_kline,
+    get_index_list,get_concept_list,get_stock_list
     )
 from stockai.utils import format_messages_for_state
 from stockai.llm import LLM
@@ -21,26 +21,29 @@ from stockai.state import AgentState
 def trend_analyze(state: AgentState) :
     
     system_prompt = f"""
+    ---
+    当前时间: {get_current_time()}
+    ---
     请根据用户的需求，利用工具进行股票的走势情况分析
     
     # 工具
     ## 时间
     - get_current_time
     ## 股票清单
-    - get_all_index_price_realtime: 获取沪深股市的重要指数列表
+    - get_index_list: 获取沪深股市的重要指数列表
     - get_concept_list：获取板块列表
-    - get_all_stock_list：获取所有股票列表
+    - get_stock_list ：获取所有股票列表
     ## 行情数据
-    - get_index_price_hist：获取指数行情数据
-    - get_concept_price_hist：获取板块行情数据
-    - get_stock_price_hist：获取个股行情数据
+    - get_index_kline ：获取指数行情数据
+    - get_concept_kline ：获取板块行情数据
+    - get_stock_kline ：获取个股行情数据
     
     ## 说明
     - 如果用户没有提供给你需要分析的目的代码或名称，你需要自行调用工具获取
-    - get_all_stock_list会获取超过5000条股票的数据，非必要不要使用，你应该根据用户的需求先缩小筛选范围，提取板块，在从板块中查找股票
+    - get_stock_list会获取超过5000条股票的数据，非必要不要使用，你应该根据用户的需求先缩小筛选范围，提取板块，在从板块中查找股票
     - 针对列表获取，优先选用markdown作为获得的数据格式，减少token占用
     - 针对行情数据，选择你最易于理解的数据格式[dict, markdown, json]
-    - get_concept_price_hist：需要传入的是板块的名称而不是代码。
+    - get_concept_kline：需要传入的是板块的名称而不是代码。
     
 
     # 分析要求
@@ -67,9 +70,8 @@ def trend_analyze(state: AgentState) :
     
     agent = create_react_agent(
         model = llm,
-        tools = [ get_current_time, 
-                get_index_price_hist, get_concept_price_hist, get_stock_price_hist,
-                get_all_index_price_realtime,get_concept_list,get_all_stock_list],
+        tools = [get_index_kline, get_concept_kline, get_stock_kline,
+                 get_index_list,get_concept_list,get_stock_list],
         prompt = system_prompt
     )
     

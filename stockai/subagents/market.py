@@ -43,3 +43,16 @@ def market_news(state: AgentState):
     
     return format_messages_for_state(result['messages'])
     
+
+
+def extract_concept(state: AgentState):
+    system_prompt = f"""
+    ---
+    当前时间: {get_current_time()}
+    ---
+    请根据要求提取合适的板块清单
+    
+    # 工具
+    - get_concept_list: 获取最新的板块清单
+    """
+    
