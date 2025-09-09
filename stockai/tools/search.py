@@ -3,6 +3,7 @@ from config import Config
 import requests
 import json
 import os
+import pandas as pd
 from bs4 import BeautifulSoup as bs
 from datetime import datetime
 from urllib.parse import urlparse, urljoin
@@ -14,7 +15,30 @@ from tenacity import (
 )
 from .ocr import extract_text_from_image, extract_text_from_image_by_llm
 
+import akshare as ak
 
+def is_trading_date(date: str):
+    """
+    判断是否为交易日
+    
+    Args:
+        date: 日期，格式为YYYY-MM-DD
+    """
+    df = ak.tool_trade_date_hist_sina()
+    return date in df.trade_date.astype(str).values
+
+def get_current_time():
+    """
+    获取当前时间
+    
+    Returns:
+        str: 对当前时间的寿命，格式为YYYY-MM-DD HH:MM:SS，星期，是否是交易日
+    """ 
+    week_list = ['星期一', '星期二', '星期三', '星期四', '星期五', '星期六', '星期日']
+    now = datetime.now()
+    return f"""当前时间: {now.strftime('%Y-%m-%d %H:%M:%S')}, 
+            星期：{week_list[now.weekday()]}, 
+            是否是交易日：{is_trading_date(now.strftime('%Y-%m-%d'))}"""
 
 
 def baidu_search(
@@ -311,12 +335,14 @@ def get_cls_morning_brief_by_date(date: str):
     return f"没有找到{date}的晨报, 可能由于日期不是开盘时间"
 
 
-def get_news_from_eastmoney(query: str):
+def get_news_from_eastmoney(query: str, start_date: str, end_date: str):
     """
     获取东方财富网的新闻
     
     Args:
         query: 搜索关键词
+        start_date: 筛选日期，格式YYYY-MM-DD
+        end_date: 筛选日期，格式YYYY-MM-DD
         
     Returns:
         新闻列表
@@ -324,6 +350,13 @@ def get_news_from_eastmoney(query: str):
     import akshare as ak
     df = ak.stock_news_em(symbol = query)
     df = df[['新闻标题','新闻内容', '发布时间', '文章来源', '新闻链接']]
+    df.set_index(pd.to_datetime(df['发布时间']), inplace=True)
+    
+    start = pd.to_datetime(start_date)
+    end = pd.to_datetime(end_date).replace(hour=23, minute=59, second=59)
+
+    df[(df.index >= start) & (df.index <= end)]
+    df.reset_index(drop=True, inplace=True)
     
     return df.to_dict(orient='records')
     
@@ -353,9 +386,9 @@ def get_news_content_from_eastmoney(urls: List[str]):
         page = bs(response.text, 'lxml')
         try:
             for txt in page.find_all(class_ = 'txtinfos'):
-                for p in txt.find_all('p'):
-                    msg += p.get_text()
-                    msg += '\n'
+                # for p in txt.find_all('p'): # 使用findall(p)面对含有超链接的文本会无法获取
+                msg += txt.get_text()
+                msg += '\n'
         except Exception as e:
             msg += f'获取内容失败: {str(e)}'
         

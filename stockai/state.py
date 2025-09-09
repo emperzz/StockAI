@@ -9,6 +9,6 @@ from langgraph.graph import StateGraph, add_messages
 class AgentState(TypedDict):
     """Agent状态定义"""
     # 用户输入
-    user_input: AnyMessage
+    user_input: str
     # 历史对话
     messages: Annotated[Sequence[AnyMessage], add_messages]
