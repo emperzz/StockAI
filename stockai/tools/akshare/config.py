@@ -3,6 +3,9 @@ from dataclasses import dataclass
 
 @dataclass
 class AkshareConfig:
+    """
+    AKShare 配置：缓存、重试、默认数据范围与涨停阈值。
+    """
     # 缓存配置
     cache_maxsize: int = 128
     cache_ttl: int = 600

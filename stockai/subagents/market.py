@@ -54,5 +54,6 @@ def extract_concept(state: AgentState):
     
     # 工具
     - get_concept_list: 获取最新的板块清单
+    - get_concept_realtime_data: 获取最新的板块清单和数据
     """
     

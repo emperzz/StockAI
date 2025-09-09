@@ -5,6 +5,15 @@ from .config import config
 
 
 def normalize_dates(start_date: Optional[str], end_date: Optional[str]) -> tuple[str, str]:
+    """
+    统一处理日期参数：补全空值、规范格式、校验区间。
+
+    参数:
+    - start_date/end_date: 'YYYYMMDD' 或可被 pandas 解析的字符串；可空。
+
+    返回:
+    - (start_date, end_date) 二元组，均为 'YYYYMMDD'。
+    """
     if not end_date:
         end_date = datetime.now().strftime('%Y%m%d')
     else:
@@ -22,10 +31,16 @@ def normalize_dates(start_date: Optional[str], end_date: Optional[str]) -> tuple
 
 
 def validate_stock_code(stock_code: str) -> bool:
+    """
+    校验个股代码是否为 6 位数字。
+    """
     return bool(stock_code) and len(stock_code) == 6 and stock_code.isdigit()
 
 
 def _format_time(time_str):
+    """
+    将形如 '093001' 的时间字符串格式化为 '09:30:01'，空值返回 '未知'。
+    """
     if pd.isna(time_str) or time_str == '':
         return '未知'
     time_str = str(time_str)

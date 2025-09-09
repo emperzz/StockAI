@@ -8,6 +8,17 @@ def process_dataframe(
     format: Optional[Literal['markdown', 'json', 'dict']] = 'markdown',
     max_rows: Optional[int] = None,
 ) -> Union[str, pd.DataFrame]:
+    """
+    通用 DataFrame 处理：裁剪行数并按需输出格式。
+
+    参数:
+    - df: 待处理数据。
+    - format: 'markdown'|'json'|'dict'|None；None 返回 DataFrame。
+    - max_rows: 最大返回行数，默认取全局配置。
+
+    返回:
+    - 字符串、List[Dict] 或 DataFrame。
+    """
     if df is None or df.empty:
         return "数据为空" if format is not None else pd.DataFrame()
 
@@ -36,6 +47,16 @@ def process_dataframe(
 
 
 def _calculate_price_hist(df: pd.DataFrame, sort_by: str = '时间'):
+    """
+    分时数据辅助计算：按时间排序并用上一收盘生成开盘，计算涨跌幅/涨跌额/振幅。
+
+    参数:
+    - df: 必含列 ['收盘','最高','最低']，以及排序列。
+    - sort_by: 排序列名，默认 '时间'。
+
+    返回:
+    - 补充计算列后的 DataFrame。
+    """
     df = df.sort_values(sort_by).reset_index(drop=True)
 
     if len(df) > 0:

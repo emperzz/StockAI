@@ -17,6 +17,16 @@ retry_decorator = retry(
 
 
 def safe_akshare_call(api_func, *args, **kwargs):
+    """
+    安全调用 AKShare API，附带参数摘要、耗时与统一日志；由 tenacity 装饰器提供重试能力。
+
+    参数:
+    - api_func: AKShare 的函数引用。
+    - args/kwargs: 透传给 AKShare。
+
+    返回:
+    - 任意：AKShare 的原始返回对象（多为 DataFrame）。
+    """
     start = perf_counter()
     try:
         logger.info(f"调用AKShare API: {api_func.__name__} params={{{'args': args, 'kwargs': kwargs}}}")
