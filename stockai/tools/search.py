@@ -140,7 +140,8 @@ def get_cls_topics(subject_id: int):
     return topics
 
 def get_cls_market_summaries():
-    return get_cls_topics(1135)
+    # 焦点复盘的subject_id固定为1135
+    return get_cls_topics(1135) 
 
 def get_cls_morning_news_brief():
     return get_cls_topics(1151)
