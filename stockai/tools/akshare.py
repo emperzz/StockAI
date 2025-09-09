@@ -32,9 +32,9 @@ class AkshareConfig:
     default_lookback_days: int = 365
     
     # 涨停阈值
-    zt_threshold_30: float = 25.0
-    zt_threshold_20: float = 15.0
-    zt_threshold_10: float = 5.0
+    limitup_threshold_30: float = 25.0
+    limitup_threshold_20: float = 15.0
+    limitup_threshold_10: float = 5.0
 
 # 全局配置实例
 config = AkshareConfig()
@@ -196,7 +196,7 @@ def _format_time(time_str):
 
 @cached(cache)
 @retry_decorator
-def get_zt_stocks_by_date(date: str, format: Optional[Literal['markdown', 'json', 'dict']] = 'markdown') -> Union[str, pd.DataFrame]:
+def get_limitup_stocks_by_date(date: str, format: Optional[Literal['markdown', 'json', 'dict']] = 'markdown') -> Union[str, pd.DataFrame]:
     """
     根据日期获取涨停股票数据
     
@@ -501,7 +501,7 @@ def get_concept_detail(concept_code: str, format: Optional[Literal['markdown', '
         
         # 获取今日涨停股票数据
         today = datetime.now().strftime('%Y%m%d')
-        zt_df = safe_akshare_call(ak.stock_zt_pool_em, date=today)
+        limitup_df = safe_akshare_call(ak.stock_zt_pool_em, date=today)
         
         result = {
             'date': today,
@@ -516,53 +516,53 @@ def get_concept_detail(concept_code: str, format: Optional[Literal['markdown', '
         }
         
         # 初始化计数器和结果
-        zt_cnt_30 = 0
-        zt_cnt_20 = 0
-        zt_cnt_10 = 0
+        limitup_cnt_30 = 0
+        limitup_cnt_20 = 0
+        limitup_cnt_10 = 0
         
-        if df is not None and not df.empty and zt_df is not None and not zt_df.empty:
+        if df is not None and not df.empty and limitup_df is not None and not limitup_df.empty:
             # 为涨停股票添加涨停信息
-            def add_zt_info(row):
+            def add_limitup_info(row):
                 """为每行数据添加涨停信息"""
-                nonlocal zt_cnt_30, zt_cnt_20, zt_cnt_10
+                nonlocal limitup_cnt_30, limitup_cnt_20, limitup_cnt_10
                 
                 stock_code = row['代码']
                 
                 # 查找该股票是否在涨停池中
-                zt_stock = zt_df[zt_df['代码'] == stock_code]
+                limitup_stock = limitup_df[limitup_df['代码'] == stock_code]
                 
-                if not zt_stock.empty:
+                if not limitup_stock.empty:
                     # 根据涨跌幅分类计数
                     try:
                         # 确保涨跌幅是数值类型
                         change_pct = float(row['涨跌幅'])
                         
                         if change_pct > 25:
-                            zt_cnt_30 += 1
+                            limitup_cnt_30 += 1
                         elif change_pct > 15:
-                            zt_cnt_20 += 1
+                            limitup_cnt_20 += 1
                         elif change_pct > 5:
-                            zt_cnt_10 += 1
+                            limitup_cnt_10 += 1
                         else:
                             print(f'警告：涨停股票{stock_code}, 涨幅{change_pct}异常')
                     except (ValueError, TypeError) as e:
                         print(f'警告：无法解析股票{stock_code}的涨跌幅: {row.get("涨跌幅", "未知")}')
                     
                     # 获取涨停信息
-                    zt_info = zt_stock.iloc[0]
+                    limitup_info = limitup_stock.iloc[0]
                     
                     # 构建涨停情况字典
-                    zt_situation = {
-                        '封板资金': int(zt_info.get('封板资金', '0')),
-                        '首次封板时间': _format_time(zt_info.get('首次封板时间', '')),
-                        '最后封板时间': _format_time(zt_info.get('最后封板时间', '')),
-                        '炸板次数': int(zt_info.get('炸板次数', '0')),
-                        '涨停统计': zt_info.get('涨停统计', '未知'),
-                        '连板数': int(zt_info.get('连板数', '0'))
+                    limitup_situation = {
+                        '封板资金': int(limitup_info.get('封板资金', '0')),
+                        '首次封板时间': _format_time(limitup_info.get('首次封板时间', '')),
+                        '最后封板时间': _format_time(limitup_info.get('最后封板时间', '')),
+                        '炸板次数': int(limitup_info.get('炸板次数', '0')),
+                        '涨停统计': limitup_info.get('涨停统计', '未知'),
+                        '连板数': int(limitup_info.get('连板数', '0'))
                     }
                     
                     # 将涨停情况添加到行数据中
-                    row['涨停情况'] = zt_situation
+                    row['涨停情况'] = limitup_situation
                     row['是否涨停'] = '是'
                 else:
                     # 非涨停股票
@@ -572,7 +572,7 @@ def get_concept_detail(concept_code: str, format: Optional[Literal['markdown', '
                 return row
         
             # 应用涨停信息添加函数
-            df = df.apply(add_zt_info, axis=1)
+            df = df.apply(add_limitup_info, axis=1)
             
             # 重新排列列顺序，将涨停信息放在前面
             base_columns = ['代码', '名称', '是否涨停', '涨停情况']
@@ -581,17 +581,17 @@ def get_concept_detail(concept_code: str, format: Optional[Literal['markdown', '
             
             # 构建完整结果
             result['涨停统计'] = {
-                '涨停总数': zt_cnt_30 + zt_cnt_20 + zt_cnt_10,
-                '30%涨停股票数量': zt_cnt_30,
-                '20%涨停股票数量': zt_cnt_20,
-                '10%涨停股票数量': zt_cnt_10
+                '涨停总数': limitup_cnt_30 + limitup_cnt_20 + limitup_cnt_10,
+                '30%涨停股票数量': limitup_cnt_30,
+                '20%涨停股票数量': limitup_cnt_20,
+                '10%涨停股票数量': limitup_cnt_10
             }
             result['板块明细'] = process_dataframe(df, format=format, max_rows=300)
             return result
         else:
             if df is None or df.empty:
                 return "未找到板块成分股数据"
-            elif zt_df is None or zt_df.empty:
+            elif limitup_df is None or limitup_df.empty:
                 # 如果没有涨停数据，仍然返回板块成分股，但不包含涨停信息
                 df['是否涨停'] = '未知'
                 df['涨停情况'] = None

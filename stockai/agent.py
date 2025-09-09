@@ -11,6 +11,7 @@ from stockai.llm import LLM
 
 from langgraph.prebuilt import create_react_agent
 from stockai.subagents.market import market_news
+from stockai.utils import format_messages_for_state
 
 
 def coordinator_node(state: AgentState) ->Command[Literal[END, 'market_news']]:
@@ -77,9 +78,7 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'market_news']]:
 
     return Command(
         goto = goto,
-        update = {
-            "messages": [AIMessage(content = result.content)]
-        }
+        update = format_messages_for_state([AIMessage(content = result.content)])
     )
 
 

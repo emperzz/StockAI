@@ -4,6 +4,7 @@ from langgraph.prebuilt import create_react_agent
 from stockai.llm import LLM
 from stockai.tools.search import baidu_search, get_news_from_eastmoney, get_news_content_from_eastmoney,get_current_time
 from stockai.state import AgentState
+from stockai.utils import format_messages_for_state
 
 def market_news(state: AgentState):
     system_prompt = f"""
@@ -40,7 +41,5 @@ def market_news(state: AgentState):
     
     result = agent.invoke({'messages': [SystemMessage(content = system_prompt), HumanMessage(content = state.get('user_input'))]})
     
-    return {
-        'messages' : result['messages']
-    }
+    return format_messages_for_state(result['messages'])
     
