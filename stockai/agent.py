@@ -11,10 +11,11 @@ from stockai.llm import LLM
 
 from langgraph.prebuilt import create_react_agent
 from stockai.subagents.market import market_news
+from stockai.subagents.trend import trend_analyze
 from stockai.utils import format_messages_for_state
 
 
-def coordinator_node(state: AgentState) ->Command[Literal[END, 'market_news']]:
+def coordinator_node(state: AgentState) ->Command[Literal[END, 'router']]:
     
     class Output(BaseModel):
         content: str = Field(...,description = '针对用户问题的回答，如果认为可以直接回答者则返回答复，如果认为无法回答，则返回无法答复的原因')
@@ -72,7 +73,7 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'market_news']]:
     result = llm.invoke( [SystemMessage(content=system_prompt),HumanMessage(content=user_input)])
 
     if result.pass_to_router:
-        goto = 'market_news'
+        goto = 'router'
     else:
         goto = END
 
@@ -86,16 +87,46 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'market_news']]:
 
 
 
-def should_continue(state: AgentState) -> str:
+def router(state: AgentState) -> Command[Literal['trend_analyze', 'market_news']]:
     """
-    根据 LLM 是否返回 handoff_to_planner 的工具调用来决定路由：
-    - 返回 "market" 则进入市场分析子代理
-    - 否则结束
+    根据用户输入选择相应的子代理：
+    - 趋势分析相关 -> trend_analyze
+    - 市场新闻相关 -> market_news
     """
-    result = market_news.invoke(state)
-    return {
-        'messages': result
-    }
+    
+    class RouterOutput(BaseModel):
+        task_type: str = Field(..., description="任务类型：'trend' 表示趋势分析，'market' 表示市场新闻")
+        reasoning: str = Field(..., description="选择该任务类型的原因")
+    
+    system_prompt = """
+    你是一个智能路由器，负责分析用户的问题并选择合适的子代理来处理。
+    
+    请根据用户的问题内容，判断应该使用哪个子代理：
+    
+    - 如果用户询问关于股票走势、技术分析、价格趋势、K线图、技术指标等，选择 'trend'
+    - 如果用户询问关于市场新闻、政策消息、公司公告、行业动态等，选择 'market'
+    
+    请仔细分析用户的问题，并给出你的判断理由。
+    """
+    
+    user_input = state.get("user_input")
+    llm = LLM().get_model().with_structured_output(RouterOutput)
+    
+    result = llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_input)
+    ])
+    
+    # 根据判断结果返回相应的 Command
+    if result.task_type == 'trend':
+        target_node = 'trend_analyze'
+    else:  # market
+        target_node = 'market_news'
+    
+    return Command(
+        goto=target_node,
+        update=format_messages_for_state([AIMessage(content=f"路由到 {target_node} 节点进行任务处理。判断理由：{result.reasoning}")])
+    )
 
 
 def error_node(state: AgentState) -> Dict[str, Any]:
@@ -115,12 +146,15 @@ def create_graph() -> StateGraph:
     
     # 添加节点
     workflow.add_node("coordinator_node", coordinator_node)
+    workflow.add_node("router", router)
+    workflow.add_node("trend_analyze", trend_analyze)
     workflow.add_node("market_news", market_news)
     
     # 设置入口点
     workflow.set_entry_point("coordinator_node")
     
-    # 子代理执行后直接结束
+    # 添加边连接
+    workflow.add_edge("trend_analyze", END)
     workflow.add_edge("market_news", END)
     
     return workflow

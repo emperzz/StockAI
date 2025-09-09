@@ -39,7 +39,7 @@ def market_news(state: AgentState):
         prompt = system_prompt
         )
     
-    result = agent.invoke({'messages': [SystemMessage(content = system_prompt), HumanMessage(content = state.get('user_input'))]})
+    result = agent.invoke({'messages': [HumanMessage(content = state.get('user_input'))]})
     
     return format_messages_for_state(result['messages'])
     
