@@ -1,6 +1,7 @@
 from typing import Literal, Optional, Union
 from datetime import datetime
 import akshare as ak
+from akshare.stock_a.stock_zh_a_spot import process_data
 import pandas as pd
 
 from .client import safe_akshare_call, retry_decorator
@@ -73,8 +74,8 @@ def get_limitup_stocks_by_date(date: str, format: Optional[Literal['markdown', '
     try:
         df = safe_akshare_call(ak.stock_zt_pool_em, date=date)
         if df is not None and not df.empty:
-            df['首次封板时间'] = _format_time(df['首次封板时间'])
-            df['最后封板时间'] = _format_time(df['最后封板时间'])
+            df['首次封板时间'] = df['首次封板时间'].apply(_format_time)
+            df['最后封板时间'] = df['最后封板时间'].apply(_format_time)
             return process_dataframe(df, format=format, max_rows=200)
         else:
             return "没有找到涨停股票数据" if format is not None else pd.DataFrame()
@@ -319,6 +320,28 @@ def get_concept_realtime_data(top_n: int = 20, format: Optional[Literal['markdow
         return process_dataframe(df, format=format)
     except Exception as e:
         return f"获取板块列表失败: {e}"
+    
+@cached(cache)
+@retry_decorator
+def get_concept_stocks_realtime_data(concept_code: str, top_n: int = 100, format: Optional[Literal['markdown', 'json', 'dict']] = 'dict'):
+    """
+    获取概念板块实时行情列表。
+
+    参数:
+    - concept_code: 板块代码
+    - top_n: 返回前 N 个股票。
+    - format: 'markdown'|'json'|'dict'|None；None 返回 DataFrame。
+
+    返回:
+    - 板块内的实时股票列表。
+    """
+    try:
+        df = safe_akshare_call(ak.stock_board_industry_cons_em, symbol=concept_code)
+        drop_cols = [c for c in ['序号','市盈率-动'] if c in df.columns]
+        df.drop(columns=drop_cols, inplace=True, errors='ignore')
+        return process_dataframe(df, format = format, max_rows = top_n)
+    except Exception as e:
+        return f"获取板块详情失败: {e}"
 
 
 @cached(cache)
@@ -417,6 +440,38 @@ def get_concept_list(format: Optional[Literal['markdown', 'json', 'dict']] = 'di
 
 @cached(cache)
 @retry_decorator
+def get_concept_stocks_list(concept_code: str, format: Optional[Literal['markdown', 'json', 'dict']] = 'dict'):
+    """
+    获取概念板块实时行情列表。
+
+    参数:
+    - concept_code: 板块代码
+    - top_n: 返回前 N 个股票。
+    - format: 'markdown'|'json'|'dict'|None；None 返回 DataFrame。
+
+    返回:
+    - 板块内的实时股票列表。
+    """
+    try:
+        df = get_concept_stocks_realtime_data(concept_code = concept_code, format=None, top_n=100000)
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            if '名称' in df.columns and '代码' in df.columns:
+                df = df[['名称', '代码']].copy()
+            else:
+                name_col = '名称' if '名称' in df.columns else ('name' if 'name' in df.columns else None)
+                code_col = '代码' if '代码' in df.columns else ('symbol' if 'symbol' in df.columns else None)
+                if name_col and code_col:
+                    df = df[[name_col, code_col]].copy()
+                    df.rename(columns={name_col: '名称', code_col: '代码'}, inplace=True)
+                else:
+                    return "数据格式不包含名称/代码列" if format is not None else pd.DataFrame()
+            return process_dataframe(df, format=format, max_rows=1000)
+        return "数据为空" if format is not None else pd.DataFrame()
+    except Exception as e:
+        return f"获取板块清单失败: {e}"
+
+@cached(cache)
+@retry_decorator
 def get_code_or_name(entity_type: Literal['stock', 'index', 'concept'],
                      code: Optional[str] = None,
                      name: Optional[str] = None) -> str:
@@ -468,6 +523,8 @@ def get_code_or_name(entity_type: Literal['stock', 'index', 'concept'],
         return f"解析失败: {e}"
 
 
+    
+    
 @cached(cache)
 @retry_decorator
 def get_concept_detail(concept_code: str, format: Optional[Literal['markdown', 'json', 'dict']] = 'dict') -> Union[str, dict]:

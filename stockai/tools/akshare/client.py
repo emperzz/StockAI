@@ -29,7 +29,7 @@ def safe_akshare_call(api_func, *args, **kwargs):
     """
     start = perf_counter()
     try:
-        logger.info(f"调用AKShare API: {api_func.__name__} params={{{'args': args, 'kwargs': kwargs}}}")
+        logger.info(f"调用AKShare API: {api_func.__name__} params={{'args': {args}, 'kwargs': {kwargs}}}")
         result = api_func(*args, **kwargs)
         elapsed = (perf_counter() - start) * 1000
         logger.info(f"API调用成功: {api_func.__name__}, 耗时: {elapsed:.1f}ms")
