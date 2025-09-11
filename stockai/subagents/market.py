@@ -1,6 +1,6 @@
 
 from typing import List
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from langgraph.prebuilt import create_react_agent
 from pydantic import BaseModel, Field
 from stockai.llm import LLM
@@ -8,47 +8,55 @@ from stockai.tools.search import baidu_search, get_news_from_eastmoney, get_news
 from stockai.tools.akshare import get_concept_list,get_concept_realtime_data, get_concept_kline, get_concept_detail,get_limitup_stocks_by_date
 from stockai.tools.analysis import analyze_concepts_overlap
 from stockai.state import AgentState
-from stockai.utils import format_messages_for_state
+from stockai.utils import format_messages_for_state, get_planner_input, execute_node_with_error_handling
 
 def market_news(state: AgentState):
-        
     
-    system_prompt = f"""
-        ---
-        当前时间: {get_current_time()}
-        ---
-        请根据用户的需求，利用工具分析回答股票相关的问题
-        
-        # 工具
-        - get_news_from_eastmoney
-        - get_news_content_from_eastmoney
-        - baidu_search
-        
-        # 流程
-        - 然后使用get_news_from_eastmoney工具，获取东方财富网的新闻
-        - 请根据新闻内容从中挑选出有助于判断上涨原因的新闻
-        - 若新闻内容中的信息欠缺细节，可以使用get_news_content_from_eastmoney传入url列表提取完整的新闻内容
-        - 如果以上两个工具依然找不到合适的消息，你可以使用baidu_search工具，搜索其他网站的新闻
-        
-        # 注意
-        - 离当前时间越近的消息对当前走势的影响越大
-        - 除非近期（1周内）找不到有效的消息，再考虑扩大消息查询的时间范围
-        - 一切的判断都以你查询到的信息为准，不要自己创造任何信息
-        - 如果实在找不到合适的消息，请直接回复不知道
-        
-        """
-
-
-
-    agent = create_react_agent(
-        model = LLM().get_model(),
-        tools = [baidu_search, get_news_from_eastmoney, get_news_content_from_eastmoney],
-        prompt = system_prompt
-        )
+    # 使用共用函数获取planner优化的输入
+    user_input = get_planner_input(state, "market_news")
     
-    result = agent.invoke({'messages': [HumanMessage(content = state.get('user_input'))]})
+    def _execute_market_news():
+        """执行市场新闻分析的核心逻辑"""
+        system_prompt = f"""
+            ---
+            当前时间: {get_current_time()}
+            ---
+            请根据用户的需求，利用工具分析回答股票相关的问题
+            
+            # 工具
+            - get_news_from_eastmoney
+            - get_news_content_from_eastmoney
+            - baidu_search
+            
+            # 流程
+            - 然后使用get_news_from_eastmoney工具，获取东方财富网的新闻
+            - 请根据新闻内容从中挑选出有助于判断上涨原因的新闻
+            - 若新闻内容中的信息欠缺细节，可以使用get_news_content_from_eastmoney传入url列表提取完整的新闻内容
+            - 如果以上两个工具依然找不到合适的消息，你可以使用baidu_search工具，搜索其他网站的新闻
+            
+            # 注意
+            - 离当前时间越近的消息对当前走势的影响越大
+            - 除非近期（1周内）找不到有效的消息，再考虑扩大消息查询的时间范围
+            - 一切的判断都以你查询到的信息为准，不要自己创造任何信息
+            - 如果实在找不到合适的消息，请直接回复不知道
+            
+            """
+
+        agent = create_react_agent(
+            model = LLM().get_model(),
+            tools = [baidu_search, get_news_from_eastmoney, get_news_content_from_eastmoney],
+            prompt = system_prompt
+            )
+        
+        result = agent.invoke({'messages': [HumanMessage(content = user_input)]})
+        return format_messages_for_state(result['messages'])
     
-    return format_messages_for_state(result['messages'])
+    # 使用公共异常处理函数
+    return execute_node_with_error_handling(
+        state=state,
+        target_node="market_news",
+        execute_func=_execute_market_news
+    )
     
 
 
