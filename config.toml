@@ -7,6 +7,16 @@ max_tokens = 8192                          # Maximum number of tokens in the res
 temperature = 0.0                          # Controls randomness
 api_type = "deepseek"
 
+
+[llm.reason]
+model = "deepseek-reasoner"       # The LLM model to use
+base_url = "https://api.deepseek.com" # API endpoint URL
+api_key = "sk-cd855458f82a4bcbbab8bdd615f3c082"                   # Your API key
+max_tokens = 8192                          # Maximum number of tokens in the response
+temperature = 0.0                          # Controls randomness
+api_type = "deepseek"
+
+
 [llm.embedding]
 api_type = "embedding"
 model = "bge-large:335m"

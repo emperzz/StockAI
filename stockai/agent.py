@@ -10,7 +10,7 @@ from stockai.state import AgentState, PlanStep
 from stockai.llm import LLM
 
 from langgraph.prebuilt import create_react_agent
-from stockai.subagents.market import market_news
+from stockai.subagents.market import market_news, get_proper_concept, analyze_leading_stocks
 from stockai.subagents.trend import trend_analyze
 from stockai.utils import format_messages_for_state
 
@@ -87,7 +87,7 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
 
 
 
-def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news', END]]:
+def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news', 'get_proper_concept', 'analyze_leading_stocks', END]]:
     """
     任务规划器，根据用户需求制定执行计划并协调各节点执行
     """
@@ -99,7 +99,6 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
     
     class NextStepOutput(BaseModel):
         """滚动规划输出"""
-        next_step_index: int = Field(..., description="下一步索引，-1表示完成")
         updated_steps: List[PlanStep] = Field(default_factory=list, description="更新的步骤列表")
         reasoning: str = Field(..., description="决策理由")
     
@@ -110,30 +109,64 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
     artifacts = state.get("artifacts", {})
     errors = state.get("errors", [])
     
-    llm = LLM().get_model()
+    
+    llm = LLM('reason').get_model()
     
     if not current_plan:
         # 首次规划：生成高层计划
         system_prompt = f"""
         你是一个智能任务规划器，负责分析用户需求并制定执行计划。
         
-        可用节点能力：
-        - trend_analyze: 股票走势分析、技术分析、价格趋势、K线图、技术指标分析
-        - market_news: 市场新闻、政策消息、公司公告、行业动态分析
-        - 
+        # 可用节点能力：
+        ## trend_analyze
+        - 股票技术分析：K线走势、价格趋势、技术指标计算
+        - 多周期分析：日线、周线、分钟线（1分钟、5分钟、15分钟）
+        - 量价关系分析：成交量与价格变化关系
+        - 支撑压力位分析：关键价位识别
+        - 分时走势分析：日内交易时段走势
+        
+        ## market_news
+        - 新闻信息获取：东方财富网、百度搜索等渠道
+        - 政策消息分析：政策对股市的影响
+        - 公司公告解读：重大事项、财务报告等
+        - 行业动态分析：行业发展趋势、竞争格局
+        - 市场情绪分析：新闻对市场情绪的影响
+        
+        ## get_proper_concept
+        - 板块清单获取：所有板块列表和实时数据
+        - - 板块筛选：按涨幅、涨停股票数量等条件筛选
+        - 板块重叠度分析：分析板块间股票重叠情况
+        - 板块成分股分析：获取板块内股票明细
+        - 涨停情况统计：板块内涨停股票统计
+        
+        ## analyze_leading_stocks
+        - 涨停股票获取：指定日期的所有涨停股票
+        - 龙头股识别：按连板次数、涨停时间等排序
+        - 权重股分析：按市值、成交量等分析
+        - 板块龙头分析：特定板块的龙头股识别
+        - 市场总龙头分析：全市场龙头股排序
         
         规划要求：
-        1. 根据用户需求，制定最优的个执行步骤，尽量控制在3-5步
-        2. 如果用户的需求简单，可由单一节点一步完成，则返回一步
+        1. 根据用户需求，制定最优的个执行步骤，每个任务要针对节点的能力特点，尽量不要指定宽泛的任务推送给单一节点处理。除非任务本身简单，可由单一节点一次完成
         2. 每步包含：id(唯一标识)、description(步骤描述)、target_node(目标节点)、inputs(传递给目标节点的需求文本)
-        3. inputs要针对目标节点优化，确保目标节点能获得最佳效果
-        4. 如果需求超出能力范围，则返回空步骤，并明确说明并给出最接近的可行方案
+        3. inputs要针对目标节点优化，确保目标节点能获得最佳效果，要结合处理任务的节点的能力，提供尽可能详细的文本内容，使得节点能够最优化的执行任务
+        4. 如果需求超出能力范围，则返回空步骤，并在reasoning里明确说明并给出最接近的可行方案建议
         5. 用中文回答
         
-        # 任务说明
-        - 如果用户没有明确
+        # 部分任务说明
+        ## 大盘分析
+        1. 你要重点搜索新闻对今天股市的总结
+        2. 找出今日大涨的板块和他们上涨的原因
+        3. 找出今天涨停的股票，并对他们总结
+        - 注意： 如果你能从今天的新闻中搜索到2和3相关的消息，则不需要自己再去查询总结
+       
         
-        用户需求：{user_input}
+        ## 选股
+        1. 挑选合适的板块
+        2. 从板块中筛选龙头股
+        3. 分析板块中的股票，挑选出个股量价关系好，趋势上涨，走势及主营业务和板块的龙头股相似的股票作为标的
+        - 注意： 若用户对选股的范围有特殊要求，按照用户的要求和规划提供给节点的任务文本
+    
         """
         
         structured_llm = llm.with_structured_output(PlanOutput)
@@ -145,24 +178,24 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         # 结构化输出已为 PlanStep 列表，直接使用
         plan_steps = result.steps
         
-        # 更新状态
-        state["plan"] = plan_steps
-        state["current_step_index"] = 0
-        
         if not plan_steps:
             return Command(
                 goto=END,
-                update=format_messages_for_state([AIMessage(content="无法制定有效计划，请检查需求或节点能力。")])
+                update=format_messages_for_state([AIMessage(content=result.reasoning)])
             )
         
         # 开始执行第一步
         first_step = plan_steps[0]
         first_step.status = "running"
-        first_step.result = "执行中..."
-        
+        # 更新状态
+        update=format_messages_for_state([AIMessage(content=f"规划完成：共{len(plan_steps)}步。开始执行第1步：{first_step.description}\n理由：{result.reasoning}")]) 
+        update['plan'] = plan_steps
+        update['current_step_index'] = 0
+                
         return Command(
             goto=first_step.target_node,
-            update=format_messages_for_state([AIMessage(content=f"规划完成：共{len(plan_steps)}步。开始执行第1步：{first_step.description}\n理由：{result.reasoning}")])
+            update= update
+           
         )
     
     else:
@@ -183,49 +216,123 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
                 update=format_messages_for_state([AIMessage(content="所有计划步骤已完成。")])
             )
         
-        # 可选：基于artifacts和errors进行滚动调整
-        if artifacts or errors:
-            system_prompt = f"""
-            你是滚动规划器，需要根据已执行步骤的结果决定下一步。
+        system_prompt = f"""
+        你是一个智能任务规划器，请根据原有的任务明细和已完成的任务结果，规划后续的任务清单。
+        
+        # 用户需求：
+        {user_input}
+        
+        #当前任务状态：
+        {[s.model_dump() for s in current_plan]}
+        
+        # 可用节点能力：
+        ## trend_analyze
+        - 股票技术分析：K线走势、价格趋势、技术指标计算
+        - 多周期分析：日线、周线、分钟线（1分钟、5分钟、15分钟）
+        - 量价关系分析：成交量与价格变化关系
+        - 支撑压力位分析：关键价位识别
+        - 分时走势分析：日内交易时段走势
+        
+        ## market_news
+        - 新闻信息获取：东方财富网、百度搜索等渠道
+        - 政策消息分析：政策对股市的影响
+        - 公司公告解读：重大事项、财务报告等
+        - 行业动态分析：行业发展趋势、竞争格局
+        - 市场情绪分析：新闻对市场情绪的影响
+        
+        ## get_proper_concept
+        - 板块清单获取：所有板块列表和实时数据
+        - - 板块筛选：按涨幅、涨停股票数量等条件筛选
+        - 板块重叠度分析：分析板块间股票重叠情况
+        - 板块成分股分析：获取板块内股票明细
+        - 涨停情况统计：板块内涨停股票统计
+        
+        ## analyze_leading_stocks
+        - 涨停股票获取：指定日期的所有涨停股票
+        - 龙头股识别：按连板次数、涨停时间等排序
+        - 权重股分析：按市值、成交量等分析
+        - 板块龙头分析：特定板块的龙头股识别
+        - 市场总龙头分析：全市场龙头股排序
             
-            当前状态：
-            - 已完成步骤：{current_step_index + 1}/{len(current_plan)}
-            - 当前步骤：{current_step.description}
-            - 中间产物：{list(artifacts.keys())}
-            - 错误信息：{errors}
-            
-            请决定是否需要调整后续步骤，并给出下一步索引。
-            """
-            
-            structured_llm = llm.with_structured_output(NextStepOutput)
-            decision = structured_llm.invoke([
-                SystemMessage(content=system_prompt),
-                HumanMessage(content="请给出下一步索引和必要的计划调整。")
-            ])
-            
-            if decision.updated_steps:
-                # 更新计划（简化处理：覆盖后续步骤），直接使用 PlanStep 实例
-                updated_plan = current_plan[:current_step_index + 1]
-                updated_plan.extend(decision.updated_steps)
-                state["plan"] = updated_plan
-            
-            next_index = decision.next_step_index
-            if next_index < 0 or next_index >= len(state["plan"]):
-                return Command(
-                    goto=END,
-                    update=format_messages_for_state([AIMessage(content=f"规划结束：{decision.reasoning}")])
-                )
+        
+        规划要求：
+        1. 根据用户需求，制定最优的个执行步骤，每个任务要针对节点的能力特点，尽量不要指定宽泛的任务推送给单一节点处理。除非任务本身简单，可由单一节点一次完成
+        2. 每步包含：id(唯一标识)、description(步骤描述)、target_node(目标节点)、inputs(传递给目标节点的需求文本)
+        3. inputs要针对目标节点优化，确保目标节点能获得最佳效果，要结合处理任务的节点的能力，提供尽可能详细的文本内容，使得节点能够最优化的执行任务
+        4. 如果需求超出能力范围，则返回空步骤，并在reasoning里明确说明并给出最接近的可行方案建议
+        5. 用中文回答
+        
+        # 输出要求
+        - 不要修改status为completed或failed的任务
+        - 只再必要的时候修改任务的step，
+        - 如果你认为任务不需要调整，则返回空列表并给出详细原因
+        - 如果其中有需要调整的任务，如根据已完成内容优化inputs内容，重新执行失败任务，甚至完全调整后续任务目标，则更新所有状态未pending和running的任务，即使有些任务你认为不需要更改，但也要按顺序一起输出在列表中
+        
+        # 举例
+        当前任务状态：
+        [{{'id': 'step1', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 搜索今日股市收盘总结', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'completed or failed'}},
+        {{'id': 'step2', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 找出涨幅最大的板块', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+        {{'id': 'step3', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 查询涨停股票，找出龙头股', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}}]
+        
+        ## 例1 : step1任务成功，无需调整当前任务
+        输出: {{'updated_steps': [], 'reasoning' : '分析后不需要更新的理由'}}
+        
+        ## 例2 ： step1任务失败
+        输出： {{'updated_steps': [
+                {{'id': 'step2', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 根据失败原因调整的新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+                {{'id': 'step3', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 根据失败原因调整的新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+                {{'id': 'step4', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 根据失败原因调整的新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}}
+                ], 
+                'reasoning' : '调整的详细原因和为什么这样调整'}}
+                
+        ## 例3 ： step1任务成功，根据任务结果调整后续任务
+        输出： {{'updated_steps': [
+                {{'id': 'step2', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 生成新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+                {{'id': 'step3', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 生成新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+                {{'id': 'step4', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 生成新的任务', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}}
+                ], 
+                'reasoning' : '调整的详细原因和为什么这样调整'}}
+                
+        ## 例4: 任务清单不需要调整，但根据新的结果更新descrpition和inputs
+        输出： {{'updated_steps': [
+                {{'id': 'step2', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 根据以完成任务的新的查询内容', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}},
+                {{'id': 'step3', 'description' : 'descrtption of step', 'inputs': 'detail input for llm：eg. 根据以完成任务的新的查询内容', 'target_node' : 'node_name', 'result': 'result from node llm', 'status' : 'pending'}}
+                ], 
+                'reasoning' : '调整的详细原因和为什么这样调整'}}
+        """
+        
+        structured_llm = llm.with_structured_output(NextStepOutput)
+        decision = structured_llm.invoke([
+            SystemMessage(content=system_prompt)
+        ])
+        
+        if decision.updated_steps:
+            # 更新计划（简化处理：覆盖后续步骤），直接使用 PlanStep 实例
+            updated_plan = current_plan[:current_step_index + 1]
+            updated_plan.extend(decision.updated_steps)
+            state["plan"] = updated_plan
+        
+         
+        if next_index < 0 or next_index >= len(state["plan"]):
+            return Command(
+                goto=END,
+                update=format_messages_for_state([AIMessage(content=f"规划结束：{decision.reasoning}")])
+            )
         
         # 执行下一步
-        state["current_step_index"] = next_index
         next_step = state["plan"][next_index]
         next_step.status = "running"
-        next_step.result = "执行中..."
         
+        update=format_messages_for_state([AIMessage(content=f"进入下一步 [{next_index + 1}/{len(state['plan'])}]：{next_step.description}")]) 
+        update['plan'] = state["plan"]
+        update['current_step_index'] = next_index
+                
         return Command(
             goto=next_step.target_node,
-            update=format_messages_for_state([AIMessage(content=f"进入下一步 [{next_index + 1}/{len(state['plan'])}]：{next_step.description}")])
+            update= update
+           
         )
+        
 
 
 def router(state: AgentState) -> Command[Literal['trend_analyze', 'market_news']]:
@@ -291,6 +398,8 @@ def create_graph() -> StateGraph:
     workflow.add_node("router", router)  # 保留router作为备用
     workflow.add_node("trend_analyze", trend_analyze)
     workflow.add_node("market_news", market_news)
+    workflow.add_node('analyze_leading_stocks', analyze_leading_stocks)
+    workflow.add_node('get_proper_concept', get_proper_concept)
     
     # 设置入口点
     workflow.set_entry_point("coordinator_node")
@@ -302,6 +411,8 @@ def create_graph() -> StateGraph:
     # planner -> 业务节点 -> planner (循环执行)
     workflow.add_edge("trend_analyze", "planner")
     workflow.add_edge("market_news", "planner")
+    workflow.add_edge("get_proper_concept", "planner")
+    workflow.add_edge("analyze_leading_stocks", "planner")
     
     # 保留原有的router路径作为备用
     workflow.add_edge("router", "trend_analyze")
