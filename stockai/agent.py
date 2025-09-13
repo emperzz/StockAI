@@ -10,7 +10,7 @@ from stockai.state import AgentState, PlanStep
 from stockai.llm import LLM
 
 from langgraph.prebuilt import create_react_agent
-from stockai.subagents.market import market_news, get_proper_concept, analyze_leading_stocks
+from stockai.subagents.market import market_news, get_proper_concept, analyze_leading_stocks, analyze_stocks_similiarity
 from stockai.subagents.trend import trend_analyze
 from stockai.utils import format_messages_for_state
 
@@ -87,36 +87,13 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
 
 
 
-def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news', 'get_proper_concept', 'analyze_leading_stocks', END]]:
+def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news', 'get_proper_concept', 'analyze_leading_stocks', 'analyze_stocks_similiarity', END]]:
     """
     任务规划器，根据用户需求制定执行计划并协调各节点执行
     """
     
-    class PlanOutput(BaseModel):
-        """首次规划输出"""
-        steps: List[PlanStep] = Field(..., description="计划步骤列表，每步包含id、description、target_node、inputs")
-        reasoning: str = Field(..., description="规划理由")
-    
-    class NextStepOutput(BaseModel):
-        """滚动规划输出"""
-        updated_steps: List[PlanStep] = Field(default_factory=list, description="更新的步骤列表")
-        reasoning: str = Field(..., description="决策理由")
-    
-    # 获取用户输入和当前状态
-    user_input = state.get("user_input", "")
-    current_plan = state.get("plan", [])
-    current_step_index = state.get("current_step_index", 0)
-    artifacts = state.get("artifacts", {})
-    errors = state.get("errors", [])
-    
-    
-    llm = LLM('reason').get_model()
-    
-    if not current_plan:
-        # 首次规划：生成高层计划
-        system_prompt = f"""
-        你是一个智能任务规划器，负责分析用户需求并制定执行计划。
-        
+    # 节点能力描述常量
+    NODE_CAPABILITIES = """
         # 可用节点能力：
         ## trend_analyze
         - 股票技术分析：K线走势、价格趋势、技术指标计算
@@ -145,6 +122,41 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         - 权重股分析：按市值、成交量等分析
         - 板块龙头分析：特定板块的龙头股识别
         - 市场总龙头分析：全市场龙头股排序
+        
+        ## analyze_stocks_similiarity
+        - 股票基本信息获取：股票名称、主营业务、市值等
+        - K线相似度计算：计算股票与龙头股的K线走势相似度
+        - 主营业务相似度分析：比较股票与龙头股的主营业务相似度
+        - 综合相似度排序：结合K线和主营业务相似度进行综合排序
+        - 多维度相似度评估：从技术面和基本面两个维度评估相似度
+        - 需要提供龙头股和需要计算的股票清单
+        """
+    
+    class PlanOutput(BaseModel):
+        """首次规划输出"""
+        steps: List[PlanStep] = Field(..., description="计划步骤列表，每步包含id、description、target_node、inputs")
+        reasoning: str = Field(..., description="规划理由")
+    
+    class NextStepOutput(BaseModel):
+        """滚动规划输出"""
+        updated_steps: List[PlanStep] = Field(default_factory=list, description="更新的步骤列表")
+        reasoning: str = Field(..., description="决策理由")
+    
+    # 获取用户输入和当前状态
+    user_input = state.get("user_input", "")
+    current_plan = state.get("plan", [])
+    current_step_index = state.get("current_step_index", 0)
+    artifacts = state.get("artifacts", {})
+    errors = state.get("errors", [])
+    
+    
+    llm = LLM('reason').get_model()
+    
+    if not current_plan:
+        # 首次规划：生成高层计划
+        system_prompt = f"""
+        你是一个智能任务规划器，负责分析用户需求并制定执行计划。
+        {NODE_CAPABILITIES}
         
         规划要求：
         1. 根据用户需求，制定最优的个执行步骤，每个任务要针对节点的能力特点，尽量不要指定宽泛的任务推送给单一节点处理。除非任务本身简单，可由单一节点一次完成
@@ -225,35 +237,7 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         #当前任务状态：
         {[s.model_dump() for s in current_plan]}
         
-        # 可用节点能力：
-        ## trend_analyze
-        - 股票技术分析：K线走势、价格趋势、技术指标计算
-        - 多周期分析：日线、周线、分钟线（1分钟、5分钟、15分钟）
-        - 量价关系分析：成交量与价格变化关系
-        - 支撑压力位分析：关键价位识别
-        - 分时走势分析：日内交易时段走势
-        
-        ## market_news
-        - 新闻信息获取：东方财富网、百度搜索等渠道
-        - 政策消息分析：政策对股市的影响
-        - 公司公告解读：重大事项、财务报告等
-        - 行业动态分析：行业发展趋势、竞争格局
-        - 市场情绪分析：新闻对市场情绪的影响
-        
-        ## get_proper_concept
-        - 板块清单获取：所有板块列表和实时数据
-        - - 板块筛选：按涨幅、涨停股票数量等条件筛选
-        - 板块重叠度分析：分析板块间股票重叠情况
-        - 板块成分股分析：获取板块内股票明细
-        - 涨停情况统计：板块内涨停股票统计
-        
-        ## analyze_leading_stocks
-        - 涨停股票获取：指定日期的所有涨停股票
-        - 龙头股识别：按连板次数、涨停时间等排序
-        - 权重股分析：按市值、成交量等分析
-        - 板块龙头分析：特定板块的龙头股识别
-        - 市场总龙头分析：全市场龙头股排序
-            
+        {NODE_CAPABILITIES}
         
         规划要求：
         1. 根据用户需求，制定最优的个执行步骤，每个任务要针对节点的能力特点，尽量不要指定宽泛的任务推送给单一节点处理。除非任务本身简单，可由单一节点一次完成
@@ -400,6 +384,7 @@ def create_graph() -> StateGraph:
     workflow.add_node("market_news", market_news)
     workflow.add_node('analyze_leading_stocks', analyze_leading_stocks)
     workflow.add_node('get_proper_concept', get_proper_concept)
+    workflow.add_node('analyze_stocks_similiarity', analyze_stocks_similiarity)
     
     # 设置入口点
     workflow.set_entry_point("coordinator_node")
@@ -413,6 +398,7 @@ def create_graph() -> StateGraph:
     workflow.add_edge("market_news", "planner")
     workflow.add_edge("get_proper_concept", "planner")
     workflow.add_edge("analyze_leading_stocks", "planner")
+    workflow.add_edge("analyze_stocks_similiarity", "planner")
     
     # 保留原有的router路径作为备用
     workflow.add_edge("router", "trend_analyze")
