@@ -15,6 +15,7 @@ from stockai.utils import format_messages_for_state, get_planner_input, execute_
 from stockai.llm import LLM
 # 从state.py导入状态定义
 from stockai.state import AgentState
+from stockai.session_manager import session_manager
 
 
 
@@ -22,6 +23,7 @@ def trend_analyze(state: AgentState) :
     
     # 使用共用函数获取planner优化的输入
     user_input = get_planner_input(state, "trend_analyze")
+    session_id = state.get("session_id")
     
     def _execute_trend_analysis():
         """执行趋势分析的核心逻辑"""
@@ -51,9 +53,10 @@ def trend_analyze(state: AgentState) :
         - get_concept_kline：需要传入的是板块的名称而不是代码。
         
         # 一般分析流程
-        - 使用period = 'weekly' 提取最近1年的K线数据用以分析长期趋势
-        - 使用start_date = today - 7 days, period = 'daily' 提取最近7天的日线数据，分析最近的趋势情况
-        - 除非特殊要求，在分析分时数据时，使用5分钟级别（period = '5'）的分时数据
+        - 使用prefix_kline(period = 'weekly') 提取最近1年的K线数据用以分析长期趋势
+        - 使用prefix_kline(start_date = today - 7 days(eg. 2025-09-07), period = 'daily'), 提取最近7天的日线数据，分析最近的趋势情况
+        - 使用prefix_kiline(, period = '5', start_date = today(eg. 2025-09-12), **kwargs)
+        - 除非特殊要求，在分析分时数据时，使用不小于5分钟级别（period = '5'）的分时数据
         
 
         # 分析要求
@@ -68,6 +71,7 @@ def trend_analyze(state: AgentState) :
         - 你应该提取最新的1分钟分时数据，分析分时数据的趋势情况
         - 一天的1分钟数据应该有240行，如果你收到的数据不足240行，可能是由于当天的时间还未到收盘，请根据已提供的数据分析
         - 分时数据你除了需要关注趋势外，还需要重点关注最高价和最大成交量的时间，是否有连续的放量上升或下跌成交
+        - 重点关注量价（成交和走势的关系），如上涨时是否有对应的放量，量能如何。上涨是波次性的还是持续性的等等
         
         # 注意
         - 如果用户的需求中有明确查询到行情数据级别，请根据用户的需求调用工具，如仅分析日线的趋势和走势，或仅分析分时数据

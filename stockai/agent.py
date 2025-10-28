@@ -13,6 +13,74 @@ from langgraph.prebuilt import create_react_agent
 from stockai.subagents.market import market_news, get_proper_concept, analyze_leading_stocks, analyze_stocks_similiarity
 from stockai.subagents.trend import trend_analyze
 from stockai.utils import format_messages_for_state
+from stockai.session_manager import session_manager
+
+
+def get_or_create_session(state: AgentState) -> str:
+    """
+    获取或创建会话ID
+    
+    Args:
+        state: Agent状态
+        
+    Returns:
+        str: 会话ID
+    """
+    session_id = state.get("session_id")
+    if not session_id:
+        # 创建新会话
+        user_input = state.get("user_input", "")
+        # 从用户输入中提取标题（前50个字符）
+        title = user_input[:50] + "..." if len(user_input) > 50 else user_input
+        session_id = session_manager.create_session(title=title)
+        print(f"🆕 创建新会话: {session_id}")
+    return session_id
+
+
+def save_message_to_db(session_id: str, role: str, content: str) -> bool:
+    """
+    保存消息到数据库
+    
+    Args:
+        session_id: 会话ID
+        role: 消息角色
+        content: 消息内容
+        
+    Returns:
+        bool: 保存是否成功
+    """
+    try:
+        return session_manager.save_message(session_id, role, content)
+    except Exception as e:
+        print(f"❌ 保存消息失败: {e}")
+        return False
+
+
+def save_task_result_to_db(session_id: str, step_id: str, step_description: str = None,
+                          target_node: str = None, result: str = None, status: str = 'pending',
+                          error_message: str = None) -> bool:
+    """
+    保存任务结果到数据库
+    
+    Args:
+        session_id: 会话ID
+        step_id: 步骤ID
+        step_description: 步骤描述
+        target_node: 目标节点
+        result: 执行结果
+        status: 状态
+        error_message: 错误信息
+        
+    Returns:
+        bool: 保存是否成功
+    """
+    try:
+        return session_manager.save_task_result(
+            session_id, step_id, step_description, target_node, result, status, error_message
+        )
+    except Exception as e:
+        print(f"❌ 保存任务结果失败: {e}")
+        return False
 
 
 def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
@@ -61,6 +129,12 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
 
     user_input = state.get("user_input")
     
+    # 获取或创建会话
+    session_id = get_or_create_session(state)
+    
+    # 保存用户输入消息
+    save_message_to_db(session_id, "user", user_input)
+    
     llm = LLM().get_model().with_structured_output(Output)
 
     # agent = create_react_agent(
@@ -72,6 +146,9 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
     
     result = llm.invoke( [SystemMessage(content=system_prompt),HumanMessage(content=user_input)])
 
+    # 保存AI回复消息
+    save_message_to_db(session_id, "assistant", result.content)
+
     if result.pass_to_planner:
         goto = 'planner'
     else:
@@ -79,10 +156,28 @@ def coordinator_node(state: AgentState) ->Command[Literal[END, 'planner']]:
 
     return Command(
         goto = goto,
-        update = format_messages_for_state([AIMessage(content = result.content)])
+        update = format_messages_for_state([AIMessage(content = result.content)], session_id=session_id)
     )
 
-
+PLAN_DESCRIPTIONS = """
+    # 部分任务逻辑说明
+    ## 大盘分析
+    1. 你要重点搜索新闻对今天股市的总结
+    2. 找出今日大涨的板块和他们上涨的原因
+    3. 找出今天涨停的股票，并对他们总结
+    - 注意： 如果你能从今天的新闻中搜索到2和3相关的消息，则不需要自己再去查询总结
+    
+    
+    ## 选股
+    1. 挑选合适的板块
+    2. 从板块中筛选龙头股
+    3. 分析板块中的股票，挑选出个股量价关系好，趋势上涨，走势及主营业务和板块的龙头股相似的股票作为标的。筛选标准，优先级如下：
+        3.1 优先筛选个股K线走势好，走上升趋势，盘中有放量情况的
+        3.2 K线相似度和板块的龙头股相似度高的
+        3.3 主营业务和板块的龙头股相似度高的
+        
+    - 注意： 若用户对选股的范围有特殊要求，按照用户的要求和规划提供给节点的任务文本
+    """
 
 
 
@@ -135,25 +230,7 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         - 返回结果：股票相似度分析结果，包括K线相似度分数、主营业务相似度分数、综合相似度排序、股票基本信息和相似度分析理由
         """
     
-    PLAN_DESCRIPTIONS = """
-    # 部分任务说明
-    ## 大盘分析
-    1. 你要重点搜索新闻对今天股市的总结
-    2. 找出今日大涨的板块和他们上涨的原因
-    3. 找出今天涨停的股票，并对他们总结
-    - 注意： 如果你能从今天的新闻中搜索到2和3相关的消息，则不需要自己再去查询总结
     
-    
-    ## 选股
-    1. 挑选合适的板块
-    2. 从板块中筛选龙头股
-    3. 分析板块中的股票，挑选出个股量价关系好，趋势上涨，走势及主营业务和板块的龙头股相似的股票作为标的。筛选标准，优先级如下：
-        3.1 优先筛选个股K线走势好，走上升趋势，盘中有放量情况的
-        3.2 K线相似度和板块的龙头股相似度高的
-        3.3 主营业务和板块的龙头股相似度高的
-        
-    - 注意： 若用户对选股的范围有特殊要求，按照用户的要求和规划提供给节点的任务文本
-    """
     
     class PlanOutput(BaseModel):
         """首次规划输出"""
@@ -169,6 +246,7 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
     user_input = state.get("user_input", "")
     current_plan = state.get("plan", [])
     current_step_index = state.get("current_step_index", 0)
+    session_id = state.get("session_id")
     # artifacts = state.get("artifacts", {})
     # errors = state.get("errors", [])
     
@@ -224,8 +302,19 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         # 开始执行第一步
         first_step = plan_steps[0]
         first_step.status = "running"
+        
+        # 保存任务到数据库
+        if session_id:
+            save_task_result_to_db(
+                session_id=session_id,
+                step_id=first_step.id,
+                step_description=first_step.description,
+                target_node=first_step.target_node,
+                status="running"
+            )
+        
         # 更新状态
-        update=format_messages_for_state([AIMessage(content=f"规划完成：共{len(plan_steps)}步。开始执行第1步：{first_step.description}\n理由：{result.reasoning}")]) 
+        update=format_messages_for_state([AIMessage(content=f"规划完成：共{len(plan_steps)}步。开始执行第1步：{first_step.description}\n理由：{result.reasoning}")], session_id=session_id) 
         update['plan'] = plan_steps
         update['current_step_index'] = 0
                 
@@ -335,7 +424,17 @@ def planner(state: AgentState) -> Command[Literal['trend_analyze', 'market_news'
         next_step = state["plan"][next_index]
         next_step.status = "running"
         
-        update=format_messages_for_state([AIMessage(content=f"进入下一步 [{next_index + 1}/{len(state['plan'])}]：{next_step.description}")]) 
+        # 保存任务到数据库
+        if session_id:
+            save_task_result_to_db(
+                session_id=session_id,
+                step_id=next_step.id,
+                step_description=next_step.description,
+                target_node=next_step.target_node,
+                status="running"
+            )
+        
+        update=format_messages_for_state([AIMessage(content=f"进入下一步 [{next_index + 1}/{len(state['plan'])}]：{next_step.description}")], session_id=session_id) 
         update['plan'] = state["plan"]
         update['current_step_index'] = next_index
                 
@@ -363,6 +462,7 @@ def summary(state: AgentState) -> Command[Literal[END]]:
     # 获取用户输入和计划信息
     user_input = state.get("user_input", "")
     current_plan = state.get("plan", [])
+    session_id = state.get("session_id")
     
     # 收集所有已完成步骤的结果
     completed_steps = [step for step in current_plan if step.status == "completed"]
@@ -388,6 +488,8 @@ def summary(state: AgentState) -> Command[Literal[END]]:
 
     # 任务执行结果：
     {task_summary_text}
+    
+    {PLAN_DESCRIPTIONS}
 
     # 总结要求：
     1. 基于所有已完成任务的结果，生成一份专业的投资分析报告
@@ -452,9 +554,27 @@ def summary(state: AgentState) -> Command[Literal[END]]:
 *报告生成时间：{__import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*
 *基于 {len(completed_steps)} 个分析任务的结果生成*"""
 
+    # 保存最终报告到数据库
+    if session_id:
+        # 保存最终报告消息
+        save_message_to_db(session_id, "assistant", final_report)
+        
+        # 更新会话状态为完成
+        session_manager.update_session_status(session_id, "completed")
+        
+        # 保存总结任务结果
+        save_task_result_to_db(
+            session_id=session_id,
+            step_id="summary",
+            step_description="生成最终分析报告",
+            target_node="summary",
+            result=final_report,
+            status="completed"
+        )
+
     return Command(
         goto=END,
-        update=format_messages_for_state([AIMessage(content=final_report)])
+        update=format_messages_for_state([AIMessage(content=final_report)], session_id=session_id)
     )
 
 

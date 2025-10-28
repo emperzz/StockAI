@@ -8,6 +8,15 @@ temperature = 0.0                          # Controls randomness
 api_type = "deepseek"
 
 
+# [llm]
+# model = "kimi-latest"
+# base_url = "https://api.moonshot.cn/v1"
+# api_key = "sk-T9nKCfyFyAh7SSuawVeyTHwKgjyEoDZ2r7cDSSXH2Y2CkHIS"
+# temperature = 0.0
+# max_tokens = 8192
+# api_type = "moonshoot"
+
+
 [llm.reason]
 model = "deepseek-reasoner"       # The LLM model to use
 base_url = "https://api.deepseek.com" # API endpoint URL

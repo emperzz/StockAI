@@ -30,3 +30,5 @@ class AgentState(TypedDict):
     current_step_index: int  # 当前步骤索引
     artifacts: Dict[str, Any]  # 中间产物存储
     errors: List[str]  # 错误信息
+    # 会话管理字段
+    session_id: Optional[str]  # 会话ID，用于数据持久化

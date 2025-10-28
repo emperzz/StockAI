@@ -29,22 +29,28 @@ def extract_conversational_messages(messages: List[AnyMessage]) -> Tuple[List[Un
     return conversational_messages, messages
 
 
-def format_messages_for_state(messages: List[AnyMessage]) -> dict:
+def format_messages_for_state(messages: List[AnyMessage], session_id: str = None) -> dict:
     """
     将消息列表格式化为 AgentState 所需的格式
     
     Args:
         messages: agent node 输出的消息列表
+        session_id: 会话ID，可选
         
     Returns:
         dict: 包含 conversational_messages 和 messages 的字典
     """
     conversational_messages, all_messages = extract_conversational_messages(messages)
     
-    return {
+    result = {
         "conversaional_messages": conversational_messages,
         "messages": all_messages
     }
+    
+    if session_id:
+        result["session_id"] = session_id
+    
+    return result
 
 
 def _get_current_step(state: AgentState, target_node: str) -> Optional[PlanStep]:
@@ -193,8 +199,23 @@ def execute_node_with_error_handling(
     Returns:
         dict: format_messages_for_state的结果
     """
+    session_id = state.get("session_id")
+    
     # 更新当前步骤状态为running
     _update_step_status(state, target_node, "running")
+    
+    # 保存任务开始状态到数据库
+    if session_id:
+        from .session_manager import session_manager
+        current_step = _get_current_step(state, target_node)
+        if current_step:
+            session_manager.save_task_result(
+                session_id=session_id,
+                step_id=current_step.id,
+                step_description=current_step.description,
+                target_node=target_node,
+                status="running"
+            )
     
     try:
         # 执行节点函数
@@ -206,8 +227,22 @@ def execute_node_with_error_handling(
         # 更新步骤状态为 completed，并记录真实结果
         _update_step_status(state, target_node, "completed", result_text)
         
+        # 保存任务完成状态到数据库
+        if session_id:
+            from .session_manager import session_manager
+            current_step = _get_current_step(state, target_node)
+            if current_step:
+                session_manager.save_task_result(
+                    session_id=session_id,
+                    step_id=current_step.id,
+                    step_description=current_step.description,
+                    target_node=target_node,
+                    result=result_text,
+                    status="completed"
+                )
+        
         # 统一返回标准化的消息格式
-        return format_messages_for_state(messages)
+        return format_messages_for_state(messages, session_id=session_id)
         
     except Exception as e:
         error_msg = f"执行失败: {str(e)}"
@@ -215,9 +250,24 @@ def execute_node_with_error_handling(
         # 更新步骤状态为failed，保存失败原因
         _update_step_status(state, target_node, "failed", error_msg)
         
+        # 保存任务失败状态到数据库
+        if session_id:
+            from .session_manager import session_manager
+            current_step = _get_current_step(state, target_node)
+            if current_step:
+                session_manager.save_task_result(
+                    session_id=session_id,
+                    step_id=current_step.id,
+                    step_description=current_step.description,
+                    target_node=target_node,
+                    result=error_msg,
+                    status="failed",
+                    error_message=str(e)
+                )
+        
         # 将错误信息添加到errors列表
         errors = state.get("errors", [])
         errors.append(f"{target_node}节点执行失败: {str(e)}")
         state["errors"] = errors
         
-        return format_messages_for_state([AIMessage(content=f"{target_node}执行失败: {str(e)}")])
+        return format_messages_for_state([AIMessage(content=f"{target_node}执行失败: {str(e)}")], session_id=session_id)
