@@ -1,0 +1,34 @@
+# Global LLM configuration
+[llm]
+model = "deepseek-chat"       # The LLM model to use
+base_url = "https://api.deepseek.com" # API endpoint URL
+api_key =                  # Your API key
+max_tokens = 8192                          # Maximum number of tokens in the response
+temperature = 0.0                          # Controls randomness
+api_type = "deepseek"
+
+
+
+
+[llm.reason]
+model = "deepseek-reasoner"       # The LLM model to use
+base_url = "https://api.deepseek.com" # API endpoint URL
+api_key =                   # Your API key
+max_tokens = 8192                          # Maximum number of tokens in the response
+temperature = 0.0                          # Controls randomness
+api_type = "deepseek"
+
+
+[llm.embedding]
+api_type = "embedding"
+model = "bge-large:335m"
+base_url = "http://localhost:11434"
+api_key = "ollama"
+max_tokens = 4096
+temperature = 0.0
+
+[tools.tavily]
+api_key = 
+
+[tools.baidu]
+api_key = 
