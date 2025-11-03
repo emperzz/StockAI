@@ -175,32 +175,119 @@ def create_gradio_app():
         title="StockAI - 中国股市AI分析系统",
         theme=gr.themes.Soft(),
         css="""
+        /* 让容器占满整个屏幕宽高 */
+        html, body, #root { height: 100%; }
+        body { margin: 0; }
         .gradio-container {
-            max-width: 1200px !important;
+            max-width: 100% !important;   /* 宽度铺满 */
+            min-height: 100vh !important; /* 高度铺满 */
+            padding: 0 16px;              /* 轻量内边距，避免贴边 */
+        }
+        
+        /* 让主要行容器（包含3列的行）高度占满屏幕 */
+        .gradio-container > div > div > div[row].svelte-1xp0cw7,
+        .gradio-container > div > div > div[class*="row"] {
+            min-height: calc(100vh - 140px) !important;
+            height: calc(100vh - 140px) !important;
+        }
+        
+        /* 让分析结果列（flex-grow: 6）和对话助手列（flex-grow: 4）高度占满 */
+        .gradio-container .column[style*="flex-grow: 6"],
+        .gradio-container .column[style*="flex-grow: 4"] {
+            display: flex !important;
+            flex-direction: column !important;
+            height: 100% !important;
+            min-height: calc(100vh - 140px) !important;
+        }
+        
+        /* 让Chatbot区域自动填充剩余空间 */
+        .gradio-container .column[style*="flex-grow: 4"] div[class*="bubble-wrap"] {
+            flex: 1 1 auto !important;
+            min-height: 400px !important;
+            max-height: none !important;
+        }
+        
+        /* 隐藏"输入消息"标签 - 通过label=""已经移除，这里做双重保险 */
+        .gradio-container .column[style*="flex-grow: 4"] label[data-testid="block-info"],
+        .gradio-container .column[style*="flex-grow: 4"] span[data-testid="block-info"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
+        
+        /* 让发送按钮和输入框在同一行且高度一致 */
+        .gradio-container .column[style*="flex-grow: 4"] .row:last-child {
+            align-items: stretch !important;
+            display: flex !important;
+        }
+        
+        /* 让输入框占满容器，缩小发送按钮 */
+        .gradio-container .column[style*="flex-grow: 4"] .row:last-child {
+            gap: 8px !important;
+        }
+        
+        /* 针对包含textarea和button的行 - 让输入框占满，缩小按钮 */
+        .gradio-container .column[style*="flex-grow: 4"] .row:last-child label.svelte-1ae7ssi {
+            flex: 1 1 auto !important;
+            min-width: 0 !important;
+        }
+        
+        .gradio-container .column[style*="flex-grow: 4"] .row:last-child textarea {
+            width: 100% !important;
+            min-height: 42px !important;
+            height: 42px !important;
+            box-sizing: border-box !important;
+            resize: vertical !important;
+        }
+        
+        .gradio-container .column[style*="flex-grow: 4"] .row:last-child button {
+            min-height: 42px !important;
+            height: 42px !important;
+            flex: 0 0 70px !important;
+            min-width: 70px !important;
+            max-width: 70px !important;
+            width: 70px !important;
+            box-sizing: border-box !important;
+        }
+        
+        /* 移除"股票代码"标签的空白布局 - 选择股票代码标签所在的block容器 */
+        .gradio-container .column[style*="flex-grow: 2"] div.block[id="component-5"],
+        .gradio-container .column[style*="flex-grow: 2"] div.block[id*="component-5"] {
+            padding: 0 !important;
+            margin: 0 0 4px 0 !important;
+            background: transparent !important;
+            border: none !important;
+            min-width: auto !important;
+            overflow: visible !important;
+        }
+        
+        /* 确保标签文本样式正确 */
+        .gradio-container .column[style*="flex-grow: 2"] div.block[id*="component-5"] {
+            display: block !important;
+        }
+        
+        /* 缩小"分析股票"按钮的高度 */
+        .gradio-container .column[style*="flex-grow: 2"] button[id*="component-6"] {
+            height: 40px !important;
+            min-height: 40px !important;
+            padding: 8px 16px !important;
         }
         """
     ) as app:
-        
+
         gr.Markdown("""
         # 🚀 StockAI - 中国股市AI分析系统
-        
-        欢迎使用StockAI！这是一个基于AI的中国股市分析系统，可以帮助您：
-        - 📊 获取实时股票数据
-        - 📈 生成股票K线图
-        - 🔍 进行基础技术分析
-        - 🤖 AI智能分析（即将推出）
         """)
         
-        with gr.Row():
-            with gr.Column(scale=1):
-                gr.Markdown("### 📝 输入股票代码")
+        with gr.Row(equal_height=True):
+            with gr.Column(scale=2, min_width=280):
+                gr.Markdown("### 📝 输入股票代码", max_height = 30)
                 stock_code_input = gr.Textbox(
                     label="股票代码",
                     placeholder="例如: 000001 (平安银行)",
                     value="000001"
                 )
                 
-                analyze_btn = gr.Button("🔍 分析股票", variant="primary", size="lg")
+                analyze_btn = gr.Button("🔍 分析股票", variant="primary", size="sm")
                 
                 gr.Markdown("""
                 ### 💡 使用说明
@@ -215,11 +302,11 @@ def create_gradio_app():
                 - 600036: 招商银行
                 """)
             
-            with gr.Column(scale=4):
+            with gr.Column(scale=6):
                 gr.Markdown("### 📊 分析结果")
                 
                 # 分析结果输出
-                analysis_output = gr.Markdown(label="分析结果")
+                analysis_output = gr.Markdown(label="分析结果", max_height = 30)
                 
                 # 数据表格
                 data_table = gr.Dataframe(
@@ -231,21 +318,18 @@ def create_gradio_app():
                 # 图表显示
                 chart_output = gr.Plot(label="K线图")
 
-        # 分割线
-        gr.Markdown("---")
-
-        # 新增：对话能力（不影响现有分析模块）
-        gr.Markdown("### 💬 对话助手（LangGraph）")
-        with gr.Row():
-            with gr.Column(scale=3):
-                chatbot = gr.Chatbot(height=300, label="对话历史")
+            # 右侧：对话助手
+            with gr.Column(scale=4, min_width=360):
+                gr.Markdown("### 💬 对话助手（LangGraph）", max_height = 30)
+                chatbot = gr.Chatbot(label="对话历史", height=600)
                 with gr.Row():
                     chat_input = gr.Textbox(
-                        label="输入消息",
+                        label="",  # 移除标签
                         placeholder="和StockAI助手对话（当前为固定hello回复）",
-                        scale=8
+                        scale=9,
+                        container=False
                     )
-                    send_btn = gr.Button("发送", variant="primary", scale=1)
+                    send_btn = gr.Button("发送", variant="primary", scale=1, size="sm")
 
                 # 回车发送
                 chat_input.submit(
@@ -266,28 +350,16 @@ def create_gradio_app():
             inputs=[stock_code_input],
             outputs=[analysis_output, data_table, chart_output]
         )
-        
-        # 示例按钮
-        gr.Markdown("### 🎯 快速测试")
-        with gr.Row():
-            gr.Button("测试 000001").click(
-                fn=lambda: "000001",
-                outputs=[stock_code_input]
-            )
-            gr.Button("测试 000002").click(
-                fn=lambda: "000002", 
-                outputs=[stock_code_input]
-            )
-            gr.Button("测试 600000").click(
-                fn=lambda: "600000",
-                outputs=[stock_code_input]
-            )
     
     return app
 
 # 主函数
 def main():
-    """启动Gradio应用"""
+    """启动Gradio应用
+    
+    启用 autoreload=True 后，当修改代码文件时，Gradio 会自动检测并重新加载应用。
+    无需手动重启服务器。
+    """
     app = create_gradio_app()
     app.launch(
         server_name="0.0.0.0",
