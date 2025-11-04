@@ -10,8 +10,8 @@ try:
 except ImportError:
     gm = None
 
-from typing import Any, Dict, List, Optional
-from .types import Asset, AssetPrice, AssetSearchQuery, AssetSearchResult, Exchange, AssetType,DataSource, Interval, LocalizedName, MarketInfo, MarketStatus
+from typing import Any, Dict, List, Optional, Union
+from .types import AdapterMethod, Asset, AssetPrice, AssetSearchQuery, AssetSearchResult, Exchange, AssetType,DataSource, Interval, LocalizedName, MarketInfo, MarketStatus
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -46,16 +46,19 @@ class MyQuantAdapter(BaseDataAdapter):
             "SHSE": Exchange.SSE.value,  # Shanghai Stock Exchange
             "SZSE": Exchange.SZSE.value,  # Shenzhen Stock Exchange
             # "BJ": Exchange.BSE.value,  # Beijing Stock Exchange
+            'BK': Exchange.BK.value
         }
 
         self.exchange_prefix_mapping = {
             Exchange.SSE.value: "SHSE",
-            Exchange.SZSE.value: "SZSE"
+            Exchange.SZSE.value: "SZSE",
+            Exchange.BK.value : 'BK'
         }
 
         self.sector_mapping = {
             AssetType.STOCK: 1010,
-            AssetType.INDEX: 1060
+            AssetType.INDEX: 1060,
+            AssetType.BK: 1070
         }
 
         self.field_mappings = {
@@ -141,14 +144,14 @@ class MyQuantAdapter(BaseDataAdapter):
                     Exchange.SZSE,
                     # Exchange.BSE
                 },
-            ),
-            AdapterCapability(
-                asset_type=AssetType.ETF,
-                exchanges={
-                    Exchange.SSE,
-                    Exchange.SZSE,
-                    # Exchange.BSE
+                methods = {
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
                 },
+                method_priorities= {
+                    AdapterMethod.GET_HISTORICAL_PRICES: 1,
+                    AdapterMethod.GET_REAL_TIME_PRICE: 2
+                }
             ),
             AdapterCapability(
                 asset_type=AssetType.INDEX,
@@ -157,6 +160,14 @@ class MyQuantAdapter(BaseDataAdapter):
                     Exchange.SZSE,
                     # Exchange.BSE
                 },
+                methods = {
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
+                },
+                method_priorities= {
+                    AdapterMethod.GET_HISTORICAL_PRICES: 1,
+                    AdapterMethod.GET_REAL_TIME_PRICE: 2
+                }
             ),
         ]
 
@@ -165,7 +176,8 @@ class MyQuantAdapter(BaseDataAdapter):
         """Get asset types supported by Yahoo Finance."""
         return [
             AssetType.STOCK,
-            AssetType.INDEX
+            AssetType.INDEX,
+            AssetType.BK
         ]
 
     def search_assets(self, query: AssetSearchQuery) -> List[AssetSearchResult]:
@@ -228,16 +240,20 @@ class MyQuantAdapter(BaseDataAdapter):
 
         try:
             asset_type = self._check_asset_type(ticker)
-            df = gm.get_symbol_infos(
+            # df = gm.get_symbol_infos(
+            #     sec_type1 = self.sector_mapping[asset_type],
+            #     symbols = self.convert_to_source_ticker(ticker)
+            # )
+            
+            # if len(df) == 0 or df is None:
+            #     logger.warning(f"No data found for ticker: {ticker}")
+            #     return None
+
+            # return self._create_asset_from_info(ticker, asset_type, df[0])
+            return self._get_symbol_list(
                 sec_type1 = self.sector_mapping[asset_type],
                 symbols = self.convert_to_source_ticker(ticker)
-            )
-            
-            if len(df) == 0 or df is None:
-                logger.warning(f"No data found for ticker: {ticker}")
-                return None
-
-            return self._create_asset_from_info(ticker, asset_type, df[0])
+            )[0]
         except Exception as e:
             logger.error(f"Error getting asset info for {ticker}: {e}", exc_info=True)
             return None
@@ -433,3 +449,57 @@ class MyQuantAdapter(BaseDataAdapter):
             logger.error(f"Error converting DataFrame to prices: {e}", exc_info=True)
             return []
 
+    
+
+    def get_bk_list(self) -> List[Asset]:
+        """Get list of BK 
+        """
+
+        return self._get_symbol_list(sec_type1 = 1070)
+
+    def get_index_list(self) -> List[Asset]:
+
+        return self._get_symbol_list(sec_type1 = 1060, sec_type2 = 106001)
+
+    def _get_symbol_list(
+        self, 
+        sec_type1: Optional[int], 
+        sec_type2: Optional[int] = None,
+        symbols: Optional[Union[List, str]] = None,
+        exchanges: Optional[Union[List, str]] = None,
+        df: bool = True
+    ) -> List[Asset]:
+        """Get list of indexs according to exchange
+
+        Args:
+            sec_type1: 1010: 股票， 1020: 基金， 1030: 债券 ， 1040: 期货， 1050: 期权， 1060: 指数，1070：板块.
+            sec_type2: 股票 101001:A 股，101002:B 股，101003:存托凭证 - 基金 102001:ETF，102002:LOF，102005:FOF，102009:基础设施REITs - 债券 103001:可转债，103008:回购 - 期货 104001:股指期货，104003:商品期货，104006:国债期货 - 期权 105001:股票期权，105002:指数期权，105003:商品期权 - 指数 106001:股票指数，106002:基金指数，106003:债券指数，106004:期货指数 - 板块：107001:概念板块
+            symbols: e.g. 'SHSE.600008' or 'SHSE.600008,SZSE.000002' or ['SHSE.600008', 'SZSE.000002']
+            exchange: SHSE:上海证券交易所，SZSE:深圳证券交易所 ， CFFEX:中金所，SHFE:上期所，DCE:大商所， CZCE:郑商所， INE:上海国际能源交易中心 ，GFEX:广期所. e.g ['SHSE', 'SZSE'] or 'SHSE,SZSE'
+            df: whether return dataframe or list
+        Returns:
+
+        """
+        if sec_type2:
+            if str(sec_type2)[:4] != str(sec_type1):
+                logger.warning('first 4 digts of sec_type2 must equal sec_type1, current inputs are sec_type1 = {sec_type1} and sec_type2 = {sec_type2}')
+                return []
+
+        try:
+            df = gm.get_symbol_infos(sec_type1 = sec_type1, sec_type2=sec_type2,  symbols=symbols, df=df, exchanges = exchanges)
+        except Exception as e:
+            logger.error(f'Error fetching list of sec_type1 = {sec_type1} and sec_type2 = {sec_type2}')
+            return []
+
+        assets = []
+        for _, row in df.iterrows():
+            ticker = self.convert_to_internal_ticker(row.symbol)
+            assets.append(self._create_asset_from_info(ticker, AssetType.BK, row))
+
+        if assets:
+            return assets
+        else:
+            logger.warning(f"Got empty data from sec_type1:{sec_type1}, sec_type2:{sec_type2}, symbols:{symbols}, exchanges:{exchanges}")
+            return []
+
+    

@@ -19,6 +19,7 @@ except ImportError:
 
 from .base import AdapterCapability, BaseDataAdapter
 from .types import (
+    AdapterMethod,
     Asset,
     AssetPrice,
     AssetSearchQuery,
@@ -58,7 +59,7 @@ class AKShareAdapter(BaseDataAdapter):
         # Field mapping - Handle AKShare API field changes
         self.field_mappings = {
             "a_shares": {
-                "code": ["代码", "symbol", "ts_code", "股票代码"],
+                "code": ["代码", "symbol", "ts_code", "股票代码", "板块代码"],
                 "name": ["名称", "name", "short_name"],
                 "price": ["最新价", "price", "close"],
                 "pre_close": ["昨收"],
@@ -111,6 +112,7 @@ class AKShareAdapter(BaseDataAdapter):
             "NYSE": Exchange.NYSE.value,  # New York Stock Exchange
             "NASDAQ": Exchange.NASDAQ.value,  # NASDAQ Exchange
             "AMEX": Exchange.AMEX.value,  # AMEX Exchange
+            "BK": Exchange.BK.value
         }
 
         # US exchange codes for AKShare API
@@ -170,7 +172,7 @@ class AKShareAdapter(BaseDataAdapter):
         Returns:
             Currency code (CNY, HKD, or USD)
         """
-        if exchange in [Exchange.SSE, Exchange.SZSE, Exchange.BSE]:
+        if exchange in [Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.BK]:
             return "CNY"
         elif exchange == Exchange.HKEX:
             return "HKD"
@@ -385,7 +387,7 @@ class AKShareAdapter(BaseDataAdapter):
             localized_names = LocalizedName()
 
             # Determine country and currency based on exchange
-            if exchange in [Exchange.SSE, Exchange.SZSE, Exchange.BSE]:
+            if exchange in [Exchange.SSE, Exchange.SZSE, Exchange.BSE, Exchange.BK]:
                 # A-shares
                 country = "CN"
                 currency = info_dict.get("currency", "CNY")
@@ -1079,6 +1081,27 @@ class AKShareAdapter(BaseDataAdapter):
                     Exchange.NYSE,
                     Exchange.AMEX,
                 },
+                methods = {
+                    AdapterMethod.SEARCH_ASSETS,
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_MARKET,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
+                    AdapterMethod.GET_TRADING_CALENDAR
+                }
+            ),
+
+            AdapterCapability(
+                asset_type=AssetType.BK,
+                exchanges={
+                    Exchange.BK
+                },
+                methods = {
+                    AdapterMethod.SEARCH_ASSETS,
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_MARKET,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
+                    AdapterMethod.GET_TRADING_CALENDAR
+                }
             ),
             AdapterCapability(
                 asset_type=AssetType.ETF,
@@ -1091,6 +1114,13 @@ class AKShareAdapter(BaseDataAdapter):
                     Exchange.NYSE,
                     Exchange.AMEX,
                 },
+                methods = {
+                    AdapterMethod.SEARCH_ASSETS,
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_MARKET,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
+                    AdapterMethod.GET_TRADING_CALENDAR
+                }
             ),
             AdapterCapability(
                 asset_type=AssetType.INDEX,
@@ -1103,6 +1133,13 @@ class AKShareAdapter(BaseDataAdapter):
                     Exchange.NYSE,
                     Exchange.AMEX,
                 },
+                methods = {
+                    AdapterMethod.SEARCH_ASSETS,
+                    AdapterMethod.GET_HISTORICAL_PRICES,
+                    AdapterMethod.GET_REAL_TIME_MARKET,
+                    AdapterMethod.GET_REAL_TIME_PRICE,
+                    AdapterMethod.GET_TRADING_CALENDAR
+                }
             ),
         ]
     
@@ -1171,6 +1208,13 @@ class AKShareAdapter(BaseDataAdapter):
                     f"No specific format mapping for exchange {exchange_enum.value}, returning symbol: {symbol}"
                 )
                 return symbol
+            elif asset_type == AssetType.BK:
+                if exchange_enum == Exchange.BK:
+                    return f"{Exchange.BK.value}{symbol}"
+                logger.debug(
+                    f"invalide ticker format:{internal_ticker}"
+                )
+                return symbol
             else:
                 logger.debug(
                     f"Invalid asset type: {asset_type}, currently only support stock and index"
@@ -1203,6 +1247,11 @@ class AKShareAdapter(BaseDataAdapter):
                 if exchange_code in self.us_exchange_codes_reverse:
                     exchange_enum = self.us_exchange_codes_reverse[exchange_code]
                     return f"{exchange_enum.value}:{symbol}"
+
+        # Handle THS board/sector codes like BKxxxx -> BK:xxxx
+        st_upper = source_ticker.upper()
+        if st_upper.startswith(Exchange.BK.value) and st_upper[2:].isdigit():
+            return f"{Exchange.BK.value}:{st_upper[2:]}"
 
         # Handle A-shares prefixed formats like sh600519, sz000001, bj430047
         st_lower = source_ticker.lower()
@@ -1279,3 +1328,26 @@ class AKShareAdapter(BaseDataAdapter):
             )
         except Exception:
             return False
+
+    def get_bk_list(self):
+
+
+        try:
+            df = ak.stock_board_concept_name_em()
+        except Exception as e:
+            logger.error(f'Error fetching list of bk via {self.source}')
+            return []
+        
+        ticker_field = self._get_field_name(df, 'code')
+
+        assets = []
+        for _, row in df.iterrows():
+            
+            ticker = self.convert_to_internal_ticker(row[ticker_field])
+            assets.append(self._create_asset_from_info(ticker, AssetType.BK, row))
+
+        if assets:
+            return assets
+        else:
+            logger.warning(f"Got empty BK data from {self.source}")
+            return []

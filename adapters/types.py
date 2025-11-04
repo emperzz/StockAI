@@ -22,6 +22,7 @@ class AssetType(str, Enum):
     STOCK = "stock"
     CRYPTO = "crypto"
     ETF = "etf"
+    BK = "bk"
     # BOND = "bond"
     # COMMODITY = "commodity"
     # FOREX = "forex"
@@ -42,6 +43,7 @@ class Exchange(str, Enum):
     BSE = "BSE"  # Beijing Stock Exchange
     HKEX = "HKEX"  # Hong Kong Stock Exchange
     CRYPTO = "CRYPTO"  # Crypto Market
+    BK = "BK" # Sector for China Stock Exchange
 
 
 class MarketStatus(str, Enum):
@@ -79,6 +81,17 @@ class Interval(str, Enum):
     MONTH = "mo"
     YEAR = "y"
     TICK = 'tick'
+
+class AdapterMethod(str, Enum):
+    """Supported api for adapter"""
+
+    SEARCH_ASSETS = 'search_assets'
+    GET_ASSET_INFO = "get_asset_info"
+    GET_REAL_TIME_PRICE = "get_real_time_price"
+    GET_HISTORICAL_PRICES = "get_historical_prices"
+    
+    GET_REAL_TIME_MARKET = "get_real_time_market"
+    GET_TRADING_CALENDAR = "get_trading_calendar"
 
 
 @dataclass

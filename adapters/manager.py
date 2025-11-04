@@ -1,12 +1,15 @@
+from datetime import datetime
 import json
 import logging
 import os
 import threading
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+from sympy.printing.pretty.pretty_symbology import B
 from .akshare_adapter import AKShareAdapter
 from .myquant_adapters import MyQuantAdapter
 from .base import BaseDataAdapter
-from .types import DataSource, Exchange, AssetType
+from .types import AdapterMethod, AssetPrice, DataSource, Exchange, AssetType
 
 
 logger = logging.getLogger(__name__)
@@ -142,6 +145,56 @@ class AdapterManager:
 
             return list(supporting_adapters)
 
+    def get_adapters_for_ticker(
+        self, 
+        ticker: str,
+        method: Optional[str] = None
+    ) -> List[BaseDataAdapter]:
+        """Get adapters which support method, ranged by priority
+        
+        Args:
+            ticker
+            method
+            
+        Returns:
+            List of adapters ranged by priority
+        """
+        adapter = list(self.adapters.values())[0]
+        exchange, symbol = adapter._parse_internal_ticker(ticker)
+        
+        supported_exchange_adapters = self.get_adapters_for_exchange(exchange)
+        supported_asset_adapters = self.get_adapters_for_asset_type(adapter._check_asset_type(ticker))
+
+        candidates = []
+        if method:
+            try:
+                method_enum = AdapterMethod(method)
+            except Exception as e:
+                logger.error(f'Get error when converting method to enum: {e}')
+                return []  
+
+            for adapter in self.adapters.values():
+                # 检查方法支持
+                # methods = adapter.get_supported_methods()
+                capabilities = adapter.get_capabilities()
+                
+                for cap in capabilities:
+                    if method_enum in cap.methods:
+                        candidates += [adapter]
+
+                    # 获取优先级
+                    # priority = cap.method_priority(method_enum)
+                    # candidates.append((priority, adapter))
+        
+        if candidates:
+            # candidates.sort(key=lambda x: x[0])
+            # return [adapter for _, adapter in candidates]
+            return set(candidates).intersection(set(supported_exchange_adapters)).intersection(set(supported_asset_adapters))
+        else:
+            logger.warning(f'No supporting adapter found for method: {method}')
+            return []
+        
+
     def get_adapter_for_ticker(self, ticker: str) -> Optional[BaseDataAdapter]:
         """Get the best adapter for a specific ticker (with caching).
 
@@ -176,3 +229,67 @@ class AdapterManager:
 
         logger.warning(f"No suitable adapter found for ticker: {ticker}")
         return None
+
+
+    def _call_adapter_function(self, ticker: str, func_name: str, **kwargs) -> Any:
+
+        adapters = self.get_adapters_for_ticker(ticker, 'get_real_time_price')
+
+        if not adapters:
+            logger.warning(f"No suitable adapter found for ticker: {ticker}")
+            return None
+
+        # Try the primary adapter
+        for adapter in adapters:
+            try:
+                func = getattr(adapter, func_name)
+                logger.debug(f"Fetching price for {ticker} from {adapter.source.value} via function {func_name}")
+                price = func(ticker, **kwargs)
+                if price:
+                    logger.info(
+                        f"Successfully fetched price for {ticker} from {adapter.source.value} via function {func_name}"
+                    )
+                    return price
+                else:
+                    logger.debug(
+                        f"Adapter {adapter.source.value} returned None for {ticker} via function {func_name}"
+                    )
+                    continue
+            except Exception as e:
+                logger.warning(
+                    f"Adapter {adapter.source.value} failed for {ticker} via function {func_name}: {e}"
+                )
+                continue
+        logger.error(f"All adapters failed for {ticker}")
+        return None
+
+
+    def get_real_time_price(self, ticker: str) -> Optional[AssetPrice]:
+        """Get real-time price for an asset with automatic failover.
+
+        Args:
+            ticker: Asset ticker in internal format
+
+        Returns:
+            Current price data or None if not available
+        """
+        
+        return self._call_adapter_function(ticker, 'get_real_time_price')
+        
+        
+
+    def get_historical_prices(
+        self, 
+        ticker: str, 
+        start_date: datetime,
+        end_date: datetime,
+        interval: str = '1d'
+    ) -> List[AssetPrice]:
+        
+        return self._call_adapter_function(
+            ticker, 
+            'get_historical_prices', 
+            start_date =start_date, 
+            end_date = end_date, 
+            intrval = interval
+        )

@@ -8,11 +8,12 @@ from decimal import Decimal
 import logging
 import pandas as pd
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set
 
 from .types import (
+    AdapterMethod,
     Asset,
     AssetPrice,
     AssetSearchQuery,
@@ -35,10 +36,26 @@ class AdapterCapability:
 
     asset_type: AssetType
     exchanges: Set[Exchange]  # Supported exchanges
+    methods: Set[AdapterMethod]
+    method_priorities: Dict[AdapterMethod, int] = field(default_factory = dict)
 
     def supports_exchange(self, exchange: Exchange) -> bool:
         """Check if this capability supports the given exchange."""
         return exchange in self.exchanges
+
+    def supports_method(self, method: AdapterMethod) ->bool:
+        """Check if this capability supports the given method."""
+        return method in self.methods
+
+    def method_priority(self, method: AdapterMethod) -> int:
+        """Get priority of method, if not set, default to 10"""
+
+        if self.supports_method(method):
+            return self.method_priorities.get(method, 10)
+
+        logger.warning('Adapter got unspported method: {method}')
+        return None
+    
 
 
 class BaseDataAdapter(ABC):
@@ -188,6 +205,8 @@ class BaseDataAdapter(ABC):
             AssetType or None
         """
         exchange, symbol = self._parse_internal_ticker(ticker)
+        if exchange == Exchange.BK:
+            return AssetType.BK
         prefix = symbol[:2]
         if exchange not in [Exchange.SSE, Exchange.SZSE, Exchange.BSE]:
             logger.debug(f"doesn't support exchange {exchange.value}, current only suport SSE, SZSE, BSE")
@@ -385,3 +404,16 @@ class BaseDataAdapter(ABC):
         for cap in capabilities:
             exchanges.update(cap.exchanges)
         return exchanges
+
+    def get_supported_methods(self) -> Set[AdapterMethod]:
+        """Get set of all methods supported by this adapter.
+
+        Returns:
+            Set of method enums
+        """
+
+        capabilities = self.get_capabilities()
+        methods: Set[AdapterMethod] = set()
+        for cap in capabilities:
+            methods.update(cap.methods)
+        return methods
