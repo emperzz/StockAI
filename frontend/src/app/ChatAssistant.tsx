@@ -66,14 +66,14 @@ export default function ChatAssistant() {
   return (
     <Card className="h-[calc(100vh-120px)] flex flex-col">
       <CardHeader>
-        <CardTitle>💬 对话助手（LangGraph）</CardTitle>
+        <CardTitle className="text-center">ValueCell Agent</CardTitle>
       </CardHeader>
-      <CardContent className="flex-1 flex flex-col gap-4">
+      <CardContent className="flex-1 flex flex-col gap-4 items-center">
         {/* 对话历史 */}
-        <div className="flex-1 overflow-y-auto space-y-4 min-h-0">
+        <div className="flex-1 overflow-y-auto space-y-4 min-h-0 w-full">
           {messages.length === 0 ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
-              <p>开始与 StockAI 助手对话...</p>
+              <p>valuecell super-agent 你好</p>
             </div>
           ) : (
             messages.map((message, index) => (
@@ -103,7 +103,7 @@ export default function ChatAssistant() {
         </div>
 
         {/* 输入区域 */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full">
           <Input
             placeholder="和StockAI助手对话..."
             value={inputValue}
