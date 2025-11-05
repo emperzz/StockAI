@@ -342,6 +342,10 @@ class MyQuantAdapter(BaseDataAdapter):
                 f"1{Interval.MINUTE.value}": "60s",
                 f"1{Interval.DAY.value}": "1d",
                 f"{Interval.TICK.value}": "tick",
+                f"15{Interval.MINUTE.value}": "15m",
+                f"30{Interval.MINUTE.value}": "30m",
+                f"60{Interval.MINUTE.value}": "60m",
+                f"1{Interval.MONTH.value}": "1m",
             }
 
             # Get the period value from mapping

@@ -16,6 +16,8 @@ class Sector(Base):
 
     id = Column(Integer, primary_key=True, index=True)
 
+    asset_id = Column(Integer, ForeignKey("assets.id"), primary_key=True)
+    
     code = Column(
         String(50),
         unique=True,
