@@ -13,6 +13,7 @@ am.config_myquant()
 # am.get_real_time_price('SZSE:000001')
 
 md = MyQuantAdapter()
+md.get_real_time_price('SZSE:000001')
 # md.get_historical_prices('SZSE:000001', start_date = pd.to_datetime('2025-10-31'), end_date = pd.to_datetime('2025-11-01'), interval = '1d')
 
 ak = AKShareAdapter()

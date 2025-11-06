@@ -69,6 +69,7 @@ class MyQuantAdapter(BaseDataAdapter):
                 "high": ["最高", "high"],
                 "low": ["最低", "low"],
                 "close": ["收盘", "close", "price"],
+                "pre_close": ["pre_close"],
                 "volume": ["成交量", "volume", "vol"],
                 "amount": ["amount"],
                 "market_cap": ["总市值", "total_mv"],
@@ -391,7 +392,7 @@ class MyQuantAdapter(BaseDataAdapter):
         try:
             symbol = self.convert_to_source_ticker(ticker)
             try:
-                df = gm.history_n(symbol, '60s', count = 1, df = True)
+                df = gm.history_n(symbol, frequency='1d', count = 1, df = True)
             except Exception as e:
                     logger.error(
                         f"Error fetching myquant stock real-time data for {symbol}: {e}"
@@ -433,6 +434,15 @@ class MyQuantAdapter(BaseDataAdapter):
         try:
             currency = "CNY"
             field_names = self._get_field_names(df)
+            
+            # manually calculate change fields 
+            if field_names['change_field'] is None or field_names['change_pct_field'] is None:
+                if field_names['pre_close_field']:
+                    df['change_field'] = round(df[field_names['close_field']] - df[field_names['pre_close_field']],2)
+                    df['change_percent'] = round(df.change_field/df[field_names['pre_close_field']]*100,2)
+                    
+                    field_names['change_field'] = 'change_field'
+                    field_names['change_pct_field'] = 'change_percent'
 
             # if not datetime_field or not close_field :
             #     logger.error(

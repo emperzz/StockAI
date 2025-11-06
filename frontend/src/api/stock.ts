@@ -43,3 +43,25 @@ export const useGetStockData = (stockCode: string, interval: '1d' | '1m', days: 
   })
 }
 
+export interface MarketQuote {
+  name: string
+  code: string
+  price: number
+  change: number
+  pct: number
+}
+
+// useGetIndices 已无意义，建议改用 useGetQuotes
+
+export const useGetQuotes = (tickers: string[]) => {
+  return useQuery({
+    queryKey: ['market-quotes', ...tickers],
+    queryFn: async () => {
+      const query = encodeURIComponent(tickers.join(','))
+      const response = await apiClient.get<MarketQuote[]>(`/market/quotes?tickers=${query}`)
+      return response.data
+    },
+    enabled: Array.isArray(tickers) && tickers.length > 0,
+  })
+}
+

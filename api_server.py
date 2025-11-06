@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 import sys
 from pathlib import Path
-import pandas as pd
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent
@@ -17,20 +16,22 @@ sys.path.insert(0, str(project_root))
 
 # 导入 gradio_app 中的函数
 from stockai.frontend.gradio_app import (
-    get_stock_info,
-    get_stock_data,
     get_multi_stock_data,
     create_return_line_chart,
     analyze_stock,
     chat_with_agent,
 )
+from adapters.myquant_adapters import MyQuantAdapter
 
 app = FastAPI(title="StockAI API", version="1.0.0")
 
 # 配置 CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -79,15 +80,100 @@ async def root():
     return {"message": "StockAI API Server"}
 
 
+@app.get("/api/market/quotes")
+async def get_market_quotes(tickers: Optional[str] = None):
+    """
+    通用实时行情接口：支持股票 / 指数 / 板块。
+
+    - 参数 tickers: 逗号分隔的内部代码（internal_ticker），如 "SSE:000001,SZSE:399001"
+    - 若不传，则返回常用指数：上证、深证成指、创业板指、沪深300
+    返回字段：name, code(不含交易所前缀), price, change, pct
+    """
+    try:
+        adapter = MyQuantAdapter()
+
+        # 解析 tickers 参数（必须提供 internal_ticker，如 SSE:000001）
+        if not (tickers and isinstance(tickers, str)):
+            raise HTTPException(status_code=400, detail="缺少必须的参数: tickers，例如 SSE:000001,SZSE:399001")
+        # 去重并保持顺序
+        req_tickers = []
+        for t in tickers.split(","):
+            t = t.strip()
+            if t and t not in req_tickers:
+                req_tickers.append(t)
+        ticker_name_pairs = [(t, None) for t in req_tickers]
+
+        results = []
+        for ticker, preset_name in ticker_name_pairs:
+            try:
+                rt = adapter.get_real_time_price(ticker)
+                if rt is None:
+                    continue
+                # 兼容返回列表的情况，取最后一条
+                if isinstance(rt, list):
+                    if not rt:
+                        continue
+                    rt = rt[-1]
+
+                # 价格
+                if getattr(rt, 'price', None) is not None:
+                    price_val = float(rt.price)
+                elif getattr(rt, 'close_price', None) is not None:
+                    price_val = float(rt.close_price)
+                else:
+                    price_val = 0.0
+
+                # 涨跌与涨跌幅（已知适配器提供 change 与 change_pct）
+                change_val = float(rt.change) if getattr(rt, 'change', None) is not None else 0.0
+                pct_attr = 'change_pct' if getattr(rt, 'change_pct', None) is not None else (
+                    'change_percent' if getattr(rt, 'change_percent', None) is not None else None
+                )
+                pct_val = float(getattr(rt, pct_attr)) if pct_attr else 0.0
+
+                # 名称：优先使用预设；否则尝试资产信息
+                name_val = preset_name
+                if not name_val:
+                    try:
+                        asset = adapter.get_asset_info(ticker)
+                        if asset is not None and getattr(asset, 'name', None):
+                            name_val = str(asset.name)
+                    except Exception:
+                        pass
+
+                results.append({
+                    "name": name_val or ticker,
+                    "code": ticker.split(":", 1)[1] if ":" in ticker else ticker,
+                    "price": round(price_val, 2),
+                    "change": round(change_val, 2),
+                    "pct": round(pct_val, 2),
+                })
+            except Exception:
+                continue
+        return results
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"获取实时数据失败: {str(e)}")
+
+
 @app.get("/api/stock/info/{stock_code}")
 async def get_stock_info_api(stock_code: str):
     """获取股票基本信息"""
     try:
-        result = get_stock_info(stock_code)
-        # 将 DataFrame 转换为字典列表
-        if hasattr(result, 'to_dict'):
-            return result.to_dict('records')
-        return {"info": str(result)}
+        adapter = MyQuantAdapter()
+
+        def normalize_ticker(code: str) -> str:
+            if ":" in code:
+                return code
+            code = code.strip()
+            if code.startswith("6"):
+                return f"SSE:{code}"
+            return f"SZSE:{code}"
+
+        ticker = normalize_ticker(stock_code)
+        asset = adapter.get_asset_info(ticker)
+        if asset is None:
+            raise HTTPException(status_code=404, detail=f"未找到股票信息: {stock_code}")
+
+        return asset.model_dump()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"获取股票信息失败: {str(e)}")
 
@@ -96,11 +182,42 @@ async def get_stock_info_api(stock_code: str):
 async def get_stock_data_api(stock_code: str, interval: str = "1d", days: int = 30):
     """获取股票历史数据"""
     try:
-        result = get_stock_data(stock_code, interval=interval, days=days)
-        if isinstance(result, str):
-            raise HTTPException(status_code=500, detail=result)
-        # 将 DataFrame 转换为字典列表
-        return result.to_dict('records')
+        from datetime import datetime, timedelta
+
+        adapter = MyQuantAdapter()
+
+        def normalize_ticker(code: str) -> str:
+            if ":" in code:
+                return code
+            code = code.strip()
+            if code.startswith("6"):
+                return f"SSE:{code}"
+            return f"SZSE:{code}"
+
+        ticker = normalize_ticker(stock_code)
+
+        end_dt = datetime.now()
+        start_dt = end_dt - timedelta(days=days)
+
+        prices = adapter.get_historical_prices(ticker=ticker, start_date=start_dt, end_date=end_dt, interval=interval)
+
+        def to_row(p):
+            try:
+                return {
+                    "日期": p.timestamp.strftime("%Y-%m-%d %H:%M:%S"),
+                    "开盘": float(p.open_price) if p.open_price is not None else None,
+                    "收盘": float(p.close_price) if p.close_price is not None else (float(p.price) if p.price is not None else None),
+                    "最高": float(p.high_price) if p.high_price is not None else None,
+                    "最低": float(p.low_price) if p.low_price is not None else None,
+                    "成交量": float(p.volume) if p.volume is not None else None,
+                    "成交额": float(p.amount) if p.amount is not None else None,
+                }
+            except Exception:
+                return None
+
+        rows = [r for r in (to_row(p) for p in prices) if r is not None]
+        rows.sort(key=lambda x: x["日期"]) 
+        return rows
     except HTTPException:
         raise
     except Exception as e:
