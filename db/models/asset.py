@@ -1,6 +1,5 @@
 from typing import Any, Dict
-from datetime import datetime
-from decimal import Decimal
+from ..utils import to_decimal, parse_timestamp
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import relationship
@@ -84,6 +83,8 @@ class Asset(Base):
         nullable=False,
     )
 
+
+
     # Bidirectional relationship to AssetPrice
     prices = relationship(
         "AssetPrice",
@@ -91,12 +92,18 @@ class Asset(Base):
         lazy = "selectin",
     )
 
+    stock = relationship(
+        "Stock",
+        back_pupulates = "asset",
+        lazy = "joined",
+        uselist=False
+    )
+
     # Many-to-many to Sector via SectorStockMapping
-    sectors = relationship(
+    sector = relationship(
         "Sector",
-        secondary="sector_stock_mapping",
-        back_populates="assets",
-        lazy = "selectin",
+        back_populates="asset",
+        lazy = "joined",
     )
 
     def __repr__(self):
@@ -106,7 +113,6 @@ class Asset(Base):
 
         return {
             'id': self.id,
-            "symbol": self.ticker,
             "ticker": self.ticker,
             "name": self.name,
             "description": self.description,
@@ -250,37 +256,7 @@ class AssetPrice(Base):
     @classmethod
     def from_config(cls, config_data: Dict[str, Any], session=None) -> "AssetPrice":
 
-        def to_decimal(value: Any) -> Decimal | None:
-            if value is None:
-                return None
-            try:
-                return Decimal(str(value))
-            except Exception:
-                return None
-
-        def parse_timestamp(value: Any) -> datetime | None:
-            if value is None:
-                return None
-            if isinstance(value, datetime):
-                return value
-            if isinstance(value, (int, float)):
-                try:
-                    return datetime.fromtimestamp(value)
-                except Exception:
-                    return None
-            if isinstance(value, str):
-                # try ISO first
-                try:
-                    return datetime.fromisoformat(value)
-                except Exception:
-                    pass
-                # common fallback formats
-                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S", "%Y/%m/%d"):
-                    try:
-                        return datetime.strptime(value, fmt)
-                    except Exception:
-                        continue
-            return None
+        
 
         # resolve asset_id: prefer explicit asset_id; else lookup by ticker/symbol if session provided
         asset_id = config_data.get("asset_id")
